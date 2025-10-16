@@ -1,13 +1,23 @@
+# ===== MAVLink =====
 pymavlink
-ollama
+
+# ===== GUI =====
 tkintermapview
 customtkinter
-osmnx
-matplotlib
-sqlalchemy
-geoalchemy2
-opencv-python
-ultralytics
+
+# ===== Path planning & Geospatial  =====
 numpy
 rtree
+shapely
+osmnx
+matplotlib  
+
+# ===== Database / PostGIS =====
+sqlalchemy
+geoalchemy2
 psycopg2
+
+# ===== LLM & Computer Vision =====
+ollama
+ultralytics
+opencv-python
