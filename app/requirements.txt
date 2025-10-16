@@ -1,23 +1,36 @@
 # ===== MAVLink =====
 pymavlink
+#  - MAVLink protocol bindings for Python to communicate with drones using MAVLink messages
 
 # ===== GUI =====
 tkintermapview
+#  - An embeddable map widget for Tkinter that shows tiles and map markers (used for the main map view)
 customtkinter
+#  - A modern-themed UI toolkit for Tkinter that provides styled buttons, frames and controls
 
 # ===== Path planning & Geospatial  =====
 numpy
 rtree
+#  - A spatial index implementation that speeds up location queries (find features inside boxes quickly)
 shapely
+#  - A library for creating and operating on geometric shapes (polygons, points, intersections)
 osmnx
+#  - Utilities to download and work with OpenStreetMap data (e.g., streets, buildings) and build spatial graphs
 matplotlib  
+#  - Plotting library for producing graphs and debugging visualizations of maps and data
 
 # ===== Database / PostGIS =====
 sqlalchemy
+#  - A Python toolkit for building SQL queries and reflecting database schemas programmatically
 geoalchemy2
+#  - Extensions to SQLAlchemy that add PostGIS/geometry column types and helpers
 psycopg2
+#  - Low-level PostgreSQL database adapter used to execute SQL and fetch results
 
 # ===== LLM & Computer Vision =====
 ollama
+#  - Client library to call a local LLM (chat/model) for assistant/tool-call style interactions
 ultralytics
+#  - YOLO/Ultralytics package for object detection models (training and inference)
 opencv-python
+#  - OpenCV bindings for image processing and camera/vision utilities
