@@ -7,6 +7,8 @@ tkintermapview
 #  - An embeddable map widget for Tkinter that shows tiles and map markers (used for the main map view)
 customtkinter
 #  - A modern-themed UI toolkit for Tkinter that provides styled buttons, frames and controls
+Pillow
+#  - Python Imaging Library for loading, manipulating and saving images (required for GUI icons)
 
 # ===== Path planning & Geospatial  =====
 numpy
@@ -24,8 +26,8 @@ sqlalchemy
 #  - A Python toolkit for building SQL queries and reflecting database schemas programmatically
 geoalchemy2
 #  - Extensions to SQLAlchemy that add PostGIS/geometry column types and helpers
-psycopg2
-#  - Low-level PostgreSQL database adapter used to execute SQL and fetch results
+psycopg2-binary
+#  - Low-level PostgreSQL database adapter used to execute SQL and fetch results (binary dist)
 
 # ===== LLM & Computer Vision =====
 ollama
