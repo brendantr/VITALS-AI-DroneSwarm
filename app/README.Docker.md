@@ -15,7 +15,7 @@ Open your terminal/command prompt and navigate to the app directory:
 
 ```bash
 # Windows (PowerShell/Command Prompt)
-cd "C:\Users\[YourUsername]\OneDrive\Documents\SD1\VITALS-AI-DroneSwarm\app"
+cd "C:\path\to\VITALS-AI-DroneSwarm\app"
 
 # macOS/Linux
 cd /path/to/VITALS-AI-DroneSwarm/app
@@ -46,11 +46,9 @@ docker build -t vitals-web-app .
 
 For different platforms (useful for deployment):
 ```bash
-# For AMD64 architecture (most cloud providers)
-docker build --platform=linux/amd64 -t vitals-web-app .
+docker build -t vitals-web-app .
 
-# For ARM64 architecture (Apple M1/M2 Macs)
-docker build --platform=linux/arm64 -t vitals-web-app .
+# 
 ```
 
 ## Running the Docker Container
