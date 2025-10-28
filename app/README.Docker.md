@@ -42,15 +42,6 @@ docker build -t vitals-web-app .
 
 **Note**: The `.` at the end is important - it tells Docker to use the current directory as the build context.
 
-#### Build Options
-
-For different platforms (useful for deployment):
-```bash
-docker build -t vitals-web-app .
-
-# 
-```
-
 ## Running the Docker Container
 
 ### Basic Run Command
