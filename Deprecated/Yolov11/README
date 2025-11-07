@@ -1,0 +1,16 @@
+Dependencies(will need to update):
+pip install ultralytics
+pip install roboflow
+
+Custom Models:
+Inside this folder are two custom models trained to dectect objects from an aerial view. 
+The model name rf3v1 is trained using RoboFlow 3.0 while the one called yolov11Custom is trained using YOLOV11.
+
+Detect.py:
+This script is what will run the computer vision models. To use this script use "python detect.py 0".
+Inside the code you can change the desired model to use(yolov11Custom or rf3v1).
+
+**need to change the device handling the load from cpu to the gpu
+
+Runs:
+After running the script all data such as the JSON files and video captures are stored in the runs folder within a subfolder named after the name of the model used to capture the data. 

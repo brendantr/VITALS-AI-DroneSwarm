@@ -170,7 +170,7 @@ class Dispatcher:
             "waiting_for_request": True
         }
         self.uploading_missions[drone_id]["waypoints"] = waypoints.copy()
-        print( f"uploading waypoints: {self.uploading_missions[drone_id]["waypoints"]}")
+        print( f"uploading waypoints: {self.uploading_missions[drone_id]['waypoints']}")
 
         # Send mission count
         mission_count = len(waypoints)
