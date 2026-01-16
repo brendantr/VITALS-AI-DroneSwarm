@@ -82,12 +82,12 @@ class YOLODetector:
             )
             
             # Extract detections from results
-            detections = self._parse_results(results[0], img_width, img_height)
+            detections = self.parse_results(results[0], img_width, img_height)
             
             # Generate annotated image if requested
             annotated_img = None
             if return_annotated:
-                annotated_img = self._annotate_frame(frame.copy(), detections)
+                annotated_img = self.annotate_frame(frame.copy(), detections)
             
             print(f"Detected {len(detections)} objects")
             
@@ -142,4 +142,19 @@ class YOLODetector:
             List of detections
         """
         detections = []
+
+        for res in results:
+
         return detections
+    
+    def annotated_frames(
+            self,
+            frame: np.ndarray,
+            detections: List[Detection]
+    ) -> (np.ndarray):
+
+        for detection in detections:
+            x_min, y_min, x_max, y_max = detection.bbox_pixels
+            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), color='blue', thickness=2)
+
+        return frame
