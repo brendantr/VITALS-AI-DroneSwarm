@@ -40,7 +40,7 @@ services:
     depends_on:
       - agent-b
   agent-d:
-    image: gersh01/agent-d 
+    image: gersh01/agent-d
     networks:
       - vitals-network
     depends_on:
