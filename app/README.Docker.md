@@ -32,7 +32,7 @@ ls
 dir
 ```
 
-### Step 3: Build the Docker Image
+### Step 4: Build the Docker Image
 
 Build the Docker image with the following command:
 
@@ -41,6 +41,8 @@ docker build -t vitals-web-app .
 ```
 
 **Note**: The `.` at the end is important - it tells Docker to use the current directory as the build context.
+
+**Note**: Make sure Docker Desktop is running
 
 ## Running the Docker Container
 

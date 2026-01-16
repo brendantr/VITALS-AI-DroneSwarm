@@ -1,52 +1,72 @@
-# syntax=docker/dockerfile:1
-
-ARG PYTHON_VERSION=3.11.9
-FROM python:${PYTHON_VERSION}-slim as base
-
-# Prevents Python from writing pyc files.
-ENV PYTHONDONTWRITEBYTECODE=1
-
-# Keeps Python from buffering stdout and stderr to avoid situations where
-# the application crashes without emitting any logs due to buffering.
-ENV PYTHONUNBUFFERED=1
+FROM ubuntu:22.04
 
 WORKDIR /app
 
-# Install system dependencies needed for Python packages
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Detect architecture and set environment variables
+RUN dpkg --print-architecture > /tmp/arch.txt && \
+    echo "Building for architecture: $(cat /tmp/arch.txt)"
+
+# Install Python and system dependencies
 RUN apt-get update && apt-get install -y \
-    gcc \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y \
+    python3.11 \
+    python3-pip \
+    python3.11-dev \
+    build-essential \
+    libgdal-dev \
+    libspatialindex-dev \
     libpq-dev \
-    python3-dev \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a non-privileged user that the app will run under.
-# See https://docs.docker.com/go/dockerfile-user-best-practices/
-ARG UID=10001
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/nonexistent" \
-    --shell "/sbin/nologin" \
-    --no-create-home \
-    --uid "${UID}" \
-    appuser
+# Set python3.11 as default python3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
-# Download dependencies as a separate step to take advantage of Docker's caching.
-# Leverage a cache mount to /root/.cache/pip to speed up subsequent builds.
-# Leverage a bind mount to requirements.txt to avoid having to copy them into
-# into this layer.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    --mount=type=bind,source=requirements.txt,target=requirements.txt \
-    python -m pip install -r requirements.txt
+# Copy requirements first for better caching
+COPY requirements.txt .
 
-# Switch to the non-privileged user to run the application.
-USER appuser
+# Install Python dependencies with ARM64 compatibility
+# For ARM64, install CPU-only versions of heavy packages to avoid CUDA issues
+RUN ARCH=$(dpkg --print-architecture) && \
+    pip install --upgrade pip setuptools wheel && \
+    if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then \
+        echo "Installing ARM64-compatible packages..." && \
+        pip install --no-cache-dir --timeout=1000 --retries=5 \
+            pymavlink \
+            ollama \
+            tkintermapview \
+            customtkinter \
+            osmnx \
+            matplotlib \
+            sqlalchemy \
+            geoalchemy2 \
+            opencv-python-headless \
+            numpy \
+            rtree \
+            psycopg2-binary && \
+        pip install --no-cache-dir --timeout=1000 --retries=5 ultralytics --extra-index-url https://pypi.org/simple; \
+    else \
+        echo "Installing x86_64 packages..." && \
+        pip install --no-cache-dir --timeout=1000 --retries=5 -r requirements.txt; \
+    fi && \
+    echo "\n========================================" && \
+    echo "Finished Building" && \
+    echo "========================================\n"
 
-# Copy the source code into the container.
+# Copy the entire app directory
 COPY . .
 
-# Expose the port that the application listens on.
-EXPOSE 8000
-
-# Run the application - print hello world and list packages
-CMD ["python3", "/app/startup.py"]
+# Print all dependencies when container runs
+CMD ["python3", "missionState.py"]

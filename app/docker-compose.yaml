@@ -1,0 +1,51 @@
+networks:
+  vitals-network:
+    driver: bridge
+services:
+  database:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: vitals_user
+      POSTGRES_PASSWORD: vitals_password
+    ports:
+      - "5432:5432"
+    networks:
+      - vitals-network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  vitals-gcs:
+    image: gersh01/vitals-gcs:latest
+    ports:
+      - "8000:8000"
+    networks:
+      - vitals-network
+    depends_on:
+      - database
+  agent-a:
+    image: gersh01/agent-a
+    networks:
+      - vitals-network
+    depends_on:
+      - vitals-gcs
+  agent-b:
+    image: gersh01/agent-b
+    networks:
+      - vitals-network
+    depends_on:
+      - agent-a
+  agent-c:
+    image: gersh01/agent-c
+    networks:
+      - vitals-network
+    depends_on:
+      - agent-b
+  agent-d:
+    image: gersh01/agent-d 
+    networks:
+      - vitals-network
+    depends_on:
+      - agent-c
+
+
+volumes:
+  postgres_data:
