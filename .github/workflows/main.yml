@@ -41,7 +41,7 @@ jobs:
       run: |
         docker compose -f docker-compose.yml ps
 
-    - name: Run test suite
+    - name: Run Docker health test
       run: |
         if [ -f ./app/test_container.sh ]; then
           chmod +x ./app/test_container.sh
@@ -49,12 +49,21 @@ jobs:
         else
           echo "No test script found, skipping tests"
         fi
-
+        
     - name: Show container logs on failure
       if: failure()
       working-directory: ./app
       run: |
         docker compose -f docker-compose.yml logs
+
+    - name: Run test suite
+      run: |
+        if [ -f ./app/Tests/test_suite.sh ]; then
+          chmod +x ./app/Tests/test_suite.sh
+          ./app/Tests/test_suite.sh
+        else
+          echo "No test suite found, skipping tests"
+        fi
 
     - name: Stop and remove Docker Compose services
       if: always()
