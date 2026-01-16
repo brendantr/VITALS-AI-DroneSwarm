@@ -1,9 +1,5 @@
-import cv2
 import numpy as np
 from typing import Tuple, Dict
-from ultralytics import YOLO
-
-model = YOLO("/yolo_models/rf3v1.pt")
 
 class Detection:
     def __init__(
