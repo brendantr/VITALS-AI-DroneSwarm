@@ -1042,7 +1042,26 @@ class GUI:
         new_mission_popup.resizable(False, False)
         #ensure window is at top level
         new_mission_popup.attributes('-topmost', True)
-        new_mission_popup.grab_set()  # Make it modal
+
+        #Gpt start
+        # Make sure the popup is visible before grabbing focus
+        new_mission_popup.update_idletasks()
+        new_mission_popup.deiconify()
+        new_mission_popup.lift()
+        new_mission_popup.focus_force()
+
+        # Delay grab until window is actually viewable
+        def safe_grab():
+            try:
+                if new_mission_popup.winfo_viewable():
+                    new_mission_popup.grab_set()
+                else:
+                    new_mission_popup.after(30, safe_grab)
+            except Exception:
+                new_mission_popup.after(30, safe_grab)
+
+        new_mission_popup.after_idle(safe_grab)
+        #gpt stop
 
         label = customtkinter.CTkLabel(new_mission_popup, text="Select Mission Type", font=("Arial", 16))
         label.pack(pady=20)
