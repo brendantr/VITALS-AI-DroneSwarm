@@ -49,7 +49,7 @@ jobs:
         else
           echo "No test script found, skipping tests"
         fi
-        
+
     - name: Show container logs on failure
       if: failure()
       working-directory: ./app
@@ -58,12 +58,7 @@ jobs:
 
     - name: Run test suite
       run: |
-        if [ -f ./app/Tests/test_suite.sh ]; then
-          chmod +x ./app/Tests/test_suite.sh
-          ./app/Tests/test_suite.sh
-        else
-          echo "No test suite found, skipping tests"
-        fi
+        pytest -v ./app/Tests/
 
     - name: Stop and remove Docker Compose services
       if: always()
