@@ -5,11 +5,11 @@ from typing import List, Dict, Optional, Tuple
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 import logging
-from Detection import Detection
+from PerceptionProcessing.Detection import Detection
 
 logger = logging.getLogger(__name__)
 
-class YOLODetector:
+class YoloDetector:
     
     def __init__(
         self,
@@ -124,37 +124,191 @@ class YOLODetector:
         return self.detect(frame, return_annotated)
     
     def parse_results(
-            self,
-            results: Results,
-            img_height: int, 
-            img_width: int,
-    ) -> (List[Detection]):
+        self,
+        result: Results,
+        img_width: int,
+        img_height: int
+    ) -> List[Detection]:
         """
-        Parse results object and return the detections
+        Parse YOLO Results object into Detection instances
         
         Args:
-            results: 
-                Ultralytics results object
-            img_height: 
-            img_width:
+            result: Ultralytics Results object
+            img_width: Original image width
+            img_height: Original image height
         
         Returns:
-            List of detections
+            List of Detection objects (without drone_id, location, caption yet)
         """
         detections = []
-
-        for res in results:
-
+        
+        # Check for detections
+        if result.boxes is None or len(result.boxes) == 0:
+            return detections
+        
+        # Extract all data at once
+        boxes = result.boxes.xyxy.cpu().numpy()  # (N, 4)
+        confidences = result.boxes.conf.cpu().numpy()  # (N,)
+        class_ids = result.boxes.cls.cpu().numpy().astype(int)  # (N,)
+        
+        # Process each detection
+        for i in range(len(boxes)):
+            x_min, y_min, x_max, y_max = boxes[i]
+            confidence = float(confidences[i])
+            class_id = int(class_ids[i])
+            class_name = self.class_names.get(class_id, f"class_{class_id}")
+            
+            # Normalize coordinates to [0, 1]
+            bbox_normalized = (
+                float(x_min / img_width),
+                float(y_min / img_height),
+                float(x_max / img_width),
+                float(y_max / img_height)
+            )
+            
+            # Pixel coordinates
+            bbox_pixels = (
+                int(x_min),
+                int(y_min),
+                int(x_max),
+                int(y_max)
+            )
+            
+            # Create Detection (without drone_id, location, caption)
+            detection = Detection(
+                class_id=class_id,
+                class_name=class_name,
+                confidence=confidence,
+                bbox_normalized=bbox_normalized,
+                bbox_pixels=bbox_pixels,
+                # These will be added later by perception_engine
+                drone_id=None,
+                location=None,
+                caption=None
+            )
+            
+            detections.append(detection)
+        
         return detections
     
-    def annotated_frames(
-            self,
-            frame: np.ndarray,
-            detections: List[Detection]
-    ) -> (np.ndarray):
-
-        for detection in detections:
-            x_min, y_min, x_max, y_max = detection.bbox_pixels
-            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), color='blue', thickness=2)
-
+    def annotate_frame(
+        self,
+        frame: np.ndarray,
+        detections: List[Detection]
+    ) -> np.ndarray:
+        """
+        Draw bounding boxes and labels on frame
+        
+        Args:
+            frame: Input image (will be modified in-place)
+            detections: List of Detection objects
+        
+        Returns:
+            Annotated image
+        """
+        for det in detections:
+            x_min, y_min, x_max, y_max = det.bbox_pixels
+            
+            # Get color for this class (deterministic)
+            color = self._get_class_color(det.class_id)
+            
+            # Draw bounding box
+            cv2.rectangle(
+                frame,
+                (x_min, y_min),
+                (x_max, y_max),
+                color,  # ← BGR tuple, not string
+                thickness=2
+            )
+            
+            # Prepare label text
+            label = f"{det.class_name} {det.confidence:.2f}"
+            
+            # Calculate label size for background
+            (label_width, label_height), baseline = cv2.getTextSize(
+                label,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                1
+            )
+            
+            # Draw label background (filled rectangle)
+            cv2.rectangle(
+                frame,
+                (x_min, y_min - label_height - baseline - 5),
+                (x_min + label_width, y_min),
+                color,
+                thickness=-1  # -1 = filled
+            )
+            
+            # Draw label text (white on colored background)
+            cv2.putText(
+                frame,
+                label,
+                (x_min, y_min - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),  # White text
+                thickness=1,
+                lineType=cv2.LINE_AA
+            )
+        
+        # Add detection count overlay in top-left
+        metadata_text = f"Detections: {len(detections)}"
+        cv2.putText(
+            frame,
+            metadata_text,
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),  # Green text
+            thickness=2
+        )
+        
         return frame
+    
+    def _get_class_color(self, class_id: int) -> Tuple[int, int, int]:
+        """
+        Generate consistent BGR color for each class
+        
+        Args:
+            class_id: Class ID
+        
+        Returns:
+            BGR color tuple (for OpenCV)
+        """
+        # Use deterministic random color based on class_id
+        # This ensures same class always gets same color
+        np.random.seed(class_id)
+        color = tuple(np.random.randint(0, 255, 3).tolist())
+        return color
+    
+    def filter_detections(
+        self,
+        detections: List[Detection],
+        min_confidence: Optional[float] = None,
+        class_filter: Optional[List[str]] = None
+    ) -> List[Detection]:
+        """
+        Filter detections by confidence and/or class
+        
+        Args:
+            detections: List of Detection objects
+            min_confidence: Minimum confidence threshold
+            class_filter: List of class names to keep (None = keep all)
+        
+        Returns:
+            Filtered list of detections
+        """
+        filtered = detections
+        
+        # Filter by confidence
+        if min_confidence is not None:
+            filtered = [d for d in filtered if d.confidence >= min_confidence]
+        
+        # Filter by class
+        if class_filter is not None:
+            filtered = [d for d in filtered if d.class_name in class_filter]
+        
+        print(f"Filtered {len(detections)} -> {len(filtered)} detections")
+        return filtered
