@@ -12,11 +12,12 @@ else
 fi
   source ~/.bashrc
 
-./QGroundControl-x86_64.AppImage &
-wait
+./QGroundControl-x86_64.AppImage
+
 
 echo "QGC loaded"
 
+cd PX4-Autopilot
 make px4_sitl gz_x500 &
 wait
 
