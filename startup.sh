@@ -8,14 +8,14 @@ if [! -d "PX4-Autopilot/.git"]; then
     git clone --recursive https://github.com/PX4/PX4-Autopilot.git
     bash PX4-Autopilot/Tools/setup/ubuntu.sh
 else
-    echo("PX4-Autopilot already exists")
+    echo "PX4-Autopilot already exists"
 fi
   source ~/.bashrc
 
 ./QGroundControl-x86_64.AppImage &
 wait
 
-echo("QGC loaded")
+echo "QGC loaded"
 
 make px4_sitl gz_x500 &
 wait
