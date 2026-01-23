@@ -20,7 +20,7 @@ echo "QGC loaded"
 make px4_sitl gz_x500 &
 wait
 
-echo("PX4 SITL started")
+echo "PX4 SITL started"
 
 cd app
 git pull
