@@ -12,8 +12,6 @@ else
 fi
   source ~/.bashrc
 
-su vitals
-
 ../Downloads/QGroundControl-x86_64.AppImage &
 wait
 
