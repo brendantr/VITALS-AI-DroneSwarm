@@ -16,9 +16,7 @@ fi
 
 PID=$!
 
-while PID >/dev/null; do
-    sleep 1
-done
+wait $PID
 
 
 echo "QGC loaded"
