@@ -12,15 +12,14 @@ else
 fi
   source ~/.bashrc
 
-../Downloads/QGroundControl-x86_64.AppImage &
+../Downloads/QGroundControl-x86_64.AppImage 
 
 sleep 60
 
 echo "QGC loaded"
 
 cd PX4-Autopilot
-make px4_sitl gz_x500 &
-wait
+make px4_sitl gz_x500
 
 echo "PX4 SITL started"
 
