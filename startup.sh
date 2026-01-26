@@ -14,7 +14,9 @@ fi
 
 ../Downloads/QGroundControl-x86_64.AppImage &
 
-while ! pgrep -i "QGroundControl-x86_64.AppImage" > /dev/null; do
+sleep 2
+
+while ! nc -z -u localhost 14550 2>/dev/null; do
     sleep 1
 done
 
