@@ -14,7 +14,7 @@ fi
 
 ../Downloads/QGroundControl-x86_64.AppImage &
 
-while ! pgrep -x "QGroundControl" > /dev/null; do
+while ! pgrep -i "qgroundcontrol" > /dev/null; do
     sleep 1
 done
 
