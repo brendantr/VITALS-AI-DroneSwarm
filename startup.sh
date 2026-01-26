@@ -12,7 +12,7 @@ else
 fi
   source ~/.bashrc
 
-../Downloads/QGroundControl-x86_64.AppImage 
+../Downloads/QGroundControl-x86_64.AppImage &
 
 sleep 75
 
