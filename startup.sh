@@ -14,10 +14,9 @@ fi
 
 ../Downloads/QGroundControl-x86_64.AppImage &
 
-PID=$!
-
-wait $PID
-
+while ! pgrep -x "QGroundControl" > /dev/null; do
+    sleep 1
+done
 
 echo "QGC loaded"
 
