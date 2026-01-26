@@ -12,7 +12,10 @@ else
 fi
   source ~/.bashrc
 
-../Downloads/QGroundControl-x86_64.AppImage
+su vitals
+
+../Downloads/QGroundControl-x86_64.AppImage &
+wait
 
 
 echo "QGC loaded"
