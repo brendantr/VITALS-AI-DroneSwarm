@@ -13,7 +13,7 @@ fi
   source ~/.bashrc
 
 ../Downloads/QGroundControl-x86_64.AppImage &
-wait
+
 
 
 echo "QGC loaded"
