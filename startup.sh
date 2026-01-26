@@ -14,11 +14,7 @@ fi
 
 ../Downloads/QGroundControl-x86_64.AppImage &
 
-sleep 2
-
-while ! nc -z -u localhost 14550 2>/dev/null; do
-    sleep 1
-done
+sleep 45
 
 echo "QGC loaded"
 
