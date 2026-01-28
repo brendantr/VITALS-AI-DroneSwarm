@@ -2,14 +2,16 @@
 
 ## Prerequisites (Linux/WSL2 Ubuntu recommended)
 - QGroundControl AppImage downloaded (https://qgroundcontrol.com/)
-- PX4-Autopilot cloned and dependencies installed
-- Gazebo (Garden/Harmonic) installed
-- libfuse2 for AppImage
 
 ## Setup (run in a terminal)
 - AppImage permission:
-    chmod +x ./QGroundControl-x86_64.AppImage
-    sudo apt-get update && sudo apt-get install -y libfuse2
+    sudo apt update
+    sudo apt install gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl -y
+    sudo apt install libfuse2 -y
+    sudo apt install libxcb-xinerama0 libxkbcommon-x11-0 libxcb-cursor-dev -y
+
+    chmod +x ../Downloads/QGroundControl-x86_64.AppImage
+    
 
 - PX4 + Gazebo dependencies (Ubuntu/WSL2):
     git clone --recursive https://github.com/PX4/PX4-Autopilot.git

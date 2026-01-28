@@ -1,0 +1,13 @@
+pymavlink
+ollama
+tkintermapview
+customtkinter
+osmnx
+matplotlib
+sqlalchemy
+geoalchemy2
+opencv-python
+ultralytics
+numpy
+rtree
+psycopg2
