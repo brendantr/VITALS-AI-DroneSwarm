@@ -23,7 +23,6 @@ class LLaVACaptioner:
     ):
         """
         Initialize LLaVA captioner
-        
         Args:
             model_name: LLaVA model variant to use
             device: Device to run inference on ('cuda' or 'cpu')
@@ -52,12 +51,10 @@ class LLaVACaptioner:
     ) -> str:
         """
         Generate caption for an image
-        
         Args:
             image: Image as file path, numpy array (BGR), or PIL Image
             prompt: Optional custom prompt (default: general description)
             focus_bbox: Optional (x_min, y_min, x_max, y_max) to crop/focus
-        
         Returns:
             Generated caption string
         """
@@ -83,14 +80,12 @@ class LLaVACaptioner:
     ) -> str:
         """
         Generate contextual caption for a specific detection
-        
         Args:
             image: Full image
             detection_bbox: (x_min, y_min, x_max, y_max) in pixels
             class_name: Detected object class
             confidence: Detection confidence
-            context_margin: Margin around bbox to include context (0.2 = 20%)
-        
+            context_margin: Margin around bbox to include context
         Returns:
             Detailed caption describing the detection and context
         """
@@ -122,11 +117,9 @@ class LLaVACaptioner:
     ) -> List[str]:
         """
         Generate captions for multiple images
-        
         Args:
             images: List of images
             prompt: Optional custom prompt for all images
-        
         Returns:
             List of generated captions
         """
@@ -145,10 +138,8 @@ class LLaVACaptioner:
     ) -> Image.Image:
         """
         Convert various image formats to PIL Image
-        
         Args:
             image: Image in various formats
-        
         Returns:
             PIL Image object
         """
@@ -182,7 +173,6 @@ class LLaVACaptioner:
         Args:
             image: PIL Image
             bbox: (x_min, y_min, x_max, y_max) in pixels
-        
         Returns:
             Cropped PIL Image
         """
@@ -206,8 +196,7 @@ class LLaVACaptioner:
         
         Args:
             bbox: (x_min, y_min, x_max, y_max)
-            margin: Expansion factor (0.2 = 20% larger)
-        
+            margin: Expansion factor 
         Returns:
             Expanded bounding box
         """
