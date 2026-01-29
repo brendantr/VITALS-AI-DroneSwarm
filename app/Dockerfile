@@ -9,8 +9,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN dpkg --print-architecture > /tmp/arch.txt && \
     echo "Building for architecture: $(cat /tmp/arch.txt)"
 
-# Install Python and system dependencies
-RUN apt-get update && apt-get install -y \
+# Install Python and tsystem dependencies
+RUN apt update && apt install -y \
     software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y \
