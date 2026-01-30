@@ -39,15 +39,26 @@ class Dispatcher:
         self.loop.run_forever()
 
     def connect(self):
-        try:
-            self.master = mavutil.mavlink_connection('tcp:127.0.0.1:14550', mavlink_version="2.0")
-            self.master.wait_heartbeat()
-            print("Connected to MAVLink")
-            return True
-        except Exception as e:
-            print(f"Error connecting to MAVLink: {e}")
-            self.master = None
-            return False
+        connection_targets = [
+            "udp:127.0.0.1:14550",
+            "tcp:127.0.0.1:14550",
+        ]
+
+        for target in connection_targets:
+            try:
+                self.master = mavutil.mavlink_connection(target, mavlink_version="2.0")
+                heartbeat = self.master.wait_heartbeat(timeout=5)
+                if not heartbeat:
+                    print(f"MAVLink heartbeat timeout on {target}")
+                    self.master = None
+                    continue
+                print(f"Connected to MAVLink via {target}")
+                return True
+            except Exception as e:
+                print(f"Error connecting to MAVLink via {target}: {e}")
+                self.master = None
+
+        return False
     
 
     async def receive_packets(self):
