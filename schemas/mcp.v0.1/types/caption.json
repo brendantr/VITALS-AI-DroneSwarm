@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vitals.local/schemas/mcp.v0.1/types/caption.json",
+  "title": "MCP.Caption v0.1",
+  "type": "object",
+  "properties": {
+    "type": { "const": "MCP.Caption" },
+    "payload": {
+      "type": "object",
+      "required": ["caption"],
+      "properties": {
+        "caption": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sector": { "type": "string" },
+        "uav_id": { "type": "string" },
+        "frame_ts": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "payload"]
+}

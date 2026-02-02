@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vitals.local/schemas/acp.v0.1/types/intent.json",
+  "title": "ACP.Intent v0.1",
+  "type": "object",
+  "properties": {
+    "type": { "const": "ACP.Intent" },
+    "payload": {
+      "type": "object",
+      "required": ["intent_kind"],
+      "properties": {
+        "intent_kind": {
+          "type": "string",
+          "enum": ["SearchArea", "InvestigatePoint", "HoldPosition", "ReturnToHome"]
+        },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 100, "default": 50 },
+        "constraints": {
+          "type": "object",
+          "properties": {
+            "avoid_nfz": { "type": "boolean", "default": true },
+            "min_alt_m": { "type": "number" },
+            "max_alt_m": { "type": "number" },
+            "time_budget_s": { "type": "integer", "minimum": 0 },
+            "battery_reserve_pct": { "type": "integer", "minimum": 0, "maximum": 100 }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "area": {
+          "type": "object",
+          "properties": {
+            "sector": { "type": "string" },
+            "polygon_wgs84": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["lat", "lon"],
+                "properties": { "lat": { "type": "number" }, "lon": { "type": "number" } },
+                "additionalProperties": false
+              },
+              "minItems": 3
+            }
+          },
+          "additionalProperties": false
+        },
+        "point": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lon": { "type": "number" },
+            "alt_m": { "type": "number" }
+          },
+          "required": ["lat", "lon"],
+          "additionalProperties": false
+        },
+        "uav_assignment": {
+          "type": "object",
+          "properties": {
+            "uav_id": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Short explanation for operator traceability (keep brief)."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["type", "payload"]
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vitals.local/schemas/acp.v0.1/base.json",
+  "title": "ACP Base Envelope v0.1",
+  "type": "object",
+  "required": ["schema", "event_id", "ts", "type", "source", "payload"],
+  "properties": {
+    "schema": { "const": "acp.v0.1" },
+    "event_id": { "type": "string", "minLength": 8 },
+    "ts": { "type": "string", "format": "date-time" },
+    "type": {
+      "type": "string",
+      "enum": ["ACP.Intent", "ACP.Ack", "ACP.Status", "ACP.Result"]
+    },
+    "corr_id": { "type": "string" },
+    "span_id": { "type": "string" },
+    "source": {
+      "type": "object",
+      "required": ["system", "component"],
+      "properties": {
+        "system": { "type": "string", "default": "VITALS" },
+        "component": {
+          "type": "string",
+          "enum": ["AgentA", "AgentB", "AgentC", "AgentD", "GUIAdapter", "MAVLinkRouter"]
+        },
+        "instance": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "component": { "type": "string", "enum": ["AgentC", "AgentD", "MAVLinkRouter"] },
+        "instance": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": false
+}
