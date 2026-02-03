@@ -10,6 +10,7 @@ customtkinter
 Pillow
 #  - Python Imaging Library for loading, manipulating and saving images (required for GUI icons)
 
+
 # ===== Path planning & Geospatial  =====
 numpy
 rtree

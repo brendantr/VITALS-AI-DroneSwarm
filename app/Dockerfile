@@ -17,6 +17,7 @@ RUN apt update && apt install -y \
     python3.11 \
     python3-pip \
     python3.11-dev \
+    python3-tk \
     build-essential \
     libgdal-dev \
     libspatialindex-dev \
@@ -48,6 +49,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
             ollama \
             tkintermapview \
             customtkinter \
+            Pillow \
             osmnx \
             matplotlib \
             sqlalchemy \
