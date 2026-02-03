@@ -32,17 +32,16 @@ class Drone:
         self.id_of_job_with_path = None
         self.info_widget = DroneInfoBox(info_container, drone_id, self)
         self.job_info_container = jobInfoContainer(job_container, drone_id)
-        match drone_id:
-            case 1:
-                self.color = "red"
-            case 2:
-                self.color = "blue"
-            case 3:
-                self.color = "green"
-            case 4:
-                self.color = "yellow"
-            case _:
-                self.color = "gray"
+        if drone_id == 1:
+            self.color = "red"
+        elif drone_id == 2:
+            self.color = "blue"
+        elif drone_id == 3:
+            self.color = "green"
+        elif drone_id == 4:
+            self.color = "yellow"
+        else:
+            self.color = "gray"
 
     """
         Okay, so this is the one that displays the drone's positions.
