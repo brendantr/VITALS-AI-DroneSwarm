@@ -37,3 +37,5 @@ ultralytics
 #  - YOLO/Ultralytics package for object detection models (training and inference)
 opencv-python
 #  - OpenCV bindings for image processing and camera/vision utilities
+mcp
+#  - Custom internal package for MCP backends and tools (local path package)
