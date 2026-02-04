@@ -1,6 +1,6 @@
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString
-from .geometry_utils import haversine
-from .query_disambiguation import disambiguate
+from Agent_D.CostMaps.terrain_CostMap import haversine
+from Agent_D.OSM_Database.query.query_disambiguation import disambiguate
 import matplotlib.colors as mcolors
 import numpy as np
 import geopandas as gpd

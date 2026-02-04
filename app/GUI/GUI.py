@@ -11,6 +11,7 @@ from LangGraph import langChainMain
 from concurrent.futures import ThreadPoolExecutor
 from TerrainPreProcessing.check_internet import has_internet
 
+<<<<<<< Updated upstream
 
 class Drone:
     
@@ -990,6 +991,12 @@ class JobWaypoint:
         self.lat = lat
         self.lon = lon
         self.marker = map_widget.set_marker(lat, lon, text=waypointNum)
+=======
+# Import from refactored modules
+from models.jobs.job import JobWaypoint
+from GUI.Pages.HomePage import HomePage
+from GUI.Pages.MapPage import MapPage
+>>>>>>> Stashed changes
 
 
 class GUI:

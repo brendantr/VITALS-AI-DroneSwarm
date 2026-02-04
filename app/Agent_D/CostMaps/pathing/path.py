@@ -1,5 +1,5 @@
 import random
-from GUI import GUI
+from GUI.GUI import GUI
 from Dispatcher import Dispatcher
 import asyncio
 import threading

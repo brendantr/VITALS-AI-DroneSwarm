@@ -1,3 +1,5 @@
+# Cost Map - R-tree terrain cost map for each terrain.
+
 import math
 import osmnx as ox
 import geopandas as gpd

@@ -2,10 +2,12 @@
 import cv2
 import numpy as np
 from ultralytics import YOLO
+from pathlib import Path
+
 
 # Load your trained YOLO model
   # Replace with your model path
-model = YOLO("./ComputerVision/CVModels/rf3v1.pt")
+model = YOLO("D:/UCF/Assignments/Fall_25/vitals/REPO/app/ComputerVision/CVModels/rf3v1.pt")
 
 
 custom_labels = model.names  # This pulls the correct labels from the model

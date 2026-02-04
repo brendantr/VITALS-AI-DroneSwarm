@@ -1,8 +1,8 @@
-from .geometry_utils import find_extreme_coordinates, rectangle_side_lengths, add_meters_to_latitude, add_meters_to_longitude, Tile
-from .osmnx_handler import osmnx_load_rtree
-from .postgis_handler import query_osm_features, postgis_load_rtree,query_osm_features_all
-from .visualization import plot_postGIS_data, plot_search_area
-from .check_internet import has_internet
+from Agent_D.CostMaps.terrain_CostMap import find_extreme_coordinates, rectangle_side_lengths, add_meters_to_latitude, add_meters_to_longitude, Tile
+from Agent_D.OSM_Database.ingestion.osmnx_handler import osmnx_load_rtree
+from Agent_D.OSM_Database.postgis.postgis_handler import query_osm_features, postgis_load_rtree,query_osm_features_all
+from Agent_D.Visualizer.visualization import plot_postGIS_data, plot_search_area
+from Agent_D.OSM_Database.ingestion.check_internet import has_internet
 from rtree import index
 from shapely import Polygon
 import osmnx as ox
