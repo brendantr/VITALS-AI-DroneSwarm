@@ -10,8 +10,7 @@ import math
 from LangGraph import langChainMain
 from concurrent.futures import ThreadPoolExecutor
 from TerrainPreProcessing.check_internet import has_internet
-
-<<<<<<< Updated upstream
+from models.jobs.job import Job, JobWaypoint
 
 class Drone:
     
@@ -176,15 +175,6 @@ class Drone:
                 if len(trimmed_path) > 1:
                     self.active_job_path = self.map_widget.set_path(position_list = trimmed_path, width=5, color=self.color)
             
-
-
-
-class Job:
-    def __init__(self, start, waypoints, end, path_obj):
-        self.start = start
-        self.waypoints = waypoints
-        self.end = end
-        path_obj = path_obj
 
 class POI:
     def __init__(self, lat, lon, name,description, map_widget, info_container, poi_count, gui_ref):
@@ -921,7 +911,7 @@ class MapPage(customtkinter.CTkFrame):
         path_obj = self.map_widget.set_path(position_list = list_of_tuples, width=5, color="red")
         print("Job Created")
         # create job object
-        job = Job(job_name, drone_id, list_of_tuples, path_obj)
+        job = Job(job_type=job_name, job_status="pending", waypoints=list_of_tuples, path_obj=path_obj)
         self.jobs.append(job)
     
     def start_creating_polygon(self):
@@ -944,7 +934,12 @@ class MapPage(customtkinter.CTkFrame):
             self.start_polygon_button.configure(text="Finish Creating Polygon")
 
     def create_test_job(self):
-        job = Job((28.6037837, -81.2018019), [(28.6037837, -81.2018019), (28.6037931, -81.2008148), (28.6037366, -81.1983150)], (28.6037366, -81.1983150))
+        waypoints = [
+            (28.6037837, -81.2018019),
+            (28.6037931, -81.2008148),
+            (28.6037366, -81.1983150),
+        ]
+        job = Job(job_type=Job.USER_PATH, job_status="pending", waypoints=waypoints)
         print(job.start)
         print(job.waypoints)
         print(job.end)
@@ -984,19 +979,6 @@ class HomePage(customtkinter.CTkFrame):
         )
         switch_button.pack(pady=10)
         mission_review_button.pack(pady=10)
-
-
-class JobWaypoint:
-    def __init__(self, lat, lon, waypointNum, map_widget):
-        self.lat = lat
-        self.lon = lon
-        self.marker = map_widget.set_marker(lat, lon, text=waypointNum)
-=======
-# Import from refactored modules
-from models.jobs.job import JobWaypoint
-from GUI.Pages.HomePage import HomePage
-from GUI.Pages.MapPage import MapPage
->>>>>>> Stashed changes
 
 
 class GUI:

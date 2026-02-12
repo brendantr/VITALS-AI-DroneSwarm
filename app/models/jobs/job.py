@@ -18,8 +18,31 @@ class Job:
     AUTOMATED_PATH = "Automated Path"
     USER_PATH = "User Path"
     INVESTIGATE_POI = "Investigate POI"
-    CRITICAL = 1
-    NORMAL = 5
+
+    # Priority scale (higher number means higher priority in the current queue logic)
+    INITIAL_DISCOVERY = 1
+    LLM_LOW = 2
+    LLM_MEDIUM = 3
+    LLM_HIGH = 4
+    LLM_CRITICAL = 5
+    USER_ENTERED_COMMANDS = 6
+    EXIT_COMMANDS = 7
+
+    PRIORITY_LABELS = {
+        INITIAL_DISCOVERY: "Initial discovery Jobs",
+        LLM_LOW: "LLM Low",
+        LLM_MEDIUM: "LLM Medium",
+        LLM_HIGH: "LLM High",
+        LLM_CRITICAL: "LLM Critical",
+        USER_ENTERED_COMMANDS: "User Entered Commands",
+        EXIT_COMMANDS: "Exit Commands",
+    }
+
+    # Backward-compatible aliases used elsewhere in the codebase.
+    CRITICAL = LLM_CRITICAL
+    NORMAL = LLM_MEDIUM
+    MIN_ADJUSTABLE_PRIORITY = LLM_LOW
+    MAX_ADJUSTABLE_PRIORITY = LLM_CRITICAL
 
     _local_id_counter = 1
 
@@ -65,3 +88,23 @@ class Job:
     def __lt__(self, other: "Job") -> bool:
         # Compare jobs based on their priority sorting from high to low since using minheap
         return self.job_priority > other.job_priority
+
+    def increase_priority(self, step: int = 1) -> int:
+        """Increase priority, clamped to [2, 5]."""
+        if step < 0:
+            raise ValueError("step must be >= 0")
+        self.job_priority = min(
+            self.MAX_ADJUSTABLE_PRIORITY,
+            max(self.MIN_ADJUSTABLE_PRIORITY, self.job_priority + step),
+        )
+        return self.job_priority
+
+    def decrease_priority(self, step: int = 1) -> int:
+        """Decrease priority, clamped to [2, 5]."""
+        if step < 0:
+            raise ValueError("step must be >= 0")
+        self.job_priority = max(
+            self.MIN_ADJUSTABLE_PRIORITY,
+            min(self.MAX_ADJUSTABLE_PRIORITY, self.job_priority - step),
+        )
+        return self.job_priority

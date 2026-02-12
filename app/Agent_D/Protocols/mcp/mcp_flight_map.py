@@ -1,1 +1,0 @@
-#MCP - Keep track of the flight map for the drones

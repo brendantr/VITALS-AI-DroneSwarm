@@ -1,1 +1,0 @@
-#MCP - create and update the terrain cost map for the drones flight paths
