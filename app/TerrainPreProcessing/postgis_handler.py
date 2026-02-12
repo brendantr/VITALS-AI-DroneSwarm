@@ -1,63 +1,92 @@
-from sqlalchemy import Column, String, BigInteger
-from geoalchemy2 import Geometry
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy import func
-from sqlalchemy.dialects.postgresql import HSTORE
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
-from sqlalchemy import and_,or_
-from shapely.geometry import Polygon
-from geoalchemy2.shape import from_shape
-from sqlalchemy import select, func, or_
-import geopandas as gpd
-import numpy as np
-import matplotlib.colors as mcolors
-from sqlalchemy import create_engine, MetaData, Table, select
-from geoalchemy2.shape import to_shape
-from sqlalchemy import create_engine, MetaData, Table
+from sqlalchemy import MetaData, Table, and_, create_engine, func, or_, select, text
 from sqlalchemy.exc import OperationalError
-from shapely.geometry import Point, Polygon, MultiPolygon, LineString
-from pyproj import Transformer
+from geoalchemy2.shape import from_shape, to_shape
+from shapely.geometry import Point, Polygon
+from shapely import wkt as shapely_wkt
 
 
 engine = None
 metadata = None
 planet_osm_polygon = None
 
-def transform_geometry_3857_to_4326(geometry):
-    # Create a transformer from EPSG:3857 to EPSG:4326
-    transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
 
-    if isinstance(geometry, Point):
-        # Transform a single point
-        lon, lat = transformer.transform(geometry.x, geometry.y)
-        return Point(lon, lat)
-
-    elif isinstance(geometry, Polygon):
-        # Transform a polygon (only exterior)
-        transformed_coords = [transformer.transform(x, y) for x, y in geometry.exterior.coords]
-        return Polygon(transformed_coords)
-
-    elif isinstance(geometry, MultiPolygon):
-        # Transform each polygon inside a MultiPolygon
-        transformed_polygons = [
-            Polygon([transformer.transform(x, y) for x, y in polygon.exterior.coords])
-            for polygon in geometry.geoms
-        ]
-        return MultiPolygon(transformed_polygons)
-    elif isinstance(geometry, LineString):
-        transformed_coords = [transformer.transform(x, y) for x, y in geometry.coords]
-        return LineString(transformed_coords)
-    else:
-        raise TypeError(f"Input geometry must be a Point, Polygon, or MultiPolygon, got: {type(geometry)}")
+def _polygon_points_to_wkt_4326(polygon_points):
+    """Convert [(lat, lon), ...] into WKT POLYGON in EPSG:4326."""
+    if not polygon_points:
+        raise ValueError("polygon_points is required")
+    # Shapely expects (x, y) = (lon, lat)
+    lon_lat = [(lon, lat) for (lat, lon) in polygon_points]
+    poly = Polygon(lon_lat)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    return poly.wkt
 
 
+def query_tile_counts_4326(polygon_points, tile_size_m=60):
+    """
+    Calls vitals.get_tile_counts_4326(...) in Postgres to generate a grid and counts.
 
+    Returns a list of dict rows:
+      {
+        'tile_polygon': shapely Polygon (EPSG:4326),
+        'centroid': shapely Point (EPSG:4326),
+        'counts': {'building': int, 'water': int, 'highway': int, 'pedestrian_path': int},
+        'total_count': int
+      }
+    """
+    global engine
+    try:
+        engine = create_engine('postgresql://renderer:renderer@localhost:5432/gis') if engine is None else engine
+    except OperationalError as e:
+        print(f"Error connecting to PostGIS database: {e}")
+        return None
+
+    polygon_wkt = _polygon_points_to_wkt_4326(polygon_points)
+    sql = text(
+        """
+        SELECT
+            x_idx,
+            y_idx,
+            tile_wkt_4326,
+            centroid_lon,
+            centroid_lat,
+            building_count,
+            water_count,
+            highway_count,
+            pedestrian_path_count
+        FROM vitals.get_tile_counts_4326(:polygon_wkt, :tile_size_m);
+        """
+    )
+
+    with engine.connect() as conn:
+        rows = conn.execute(sql, {"polygon_wkt": polygon_wkt, "tile_size_m": int(tile_size_m)}).fetchall()
+
+    results = []
+    for r in rows:
+        tile_poly = shapely_wkt.loads(r.tile_wkt_4326)
+        centroid = Point(float(r.centroid_lon), float(r.centroid_lat))
+        counts = {
+            "building": int(r.building_count or 0),
+            "water": int(r.water_count or 0),
+            "highway": int(r.highway_count or 0),
+            "pedestrian_path": int(r.pedestrian_path_count or 0),
+        }
+        total = sum(counts.values())
+        results.append({
+            "x_idx": int(getattr(r, "x_idx", 0) or 0),
+            "y_idx": int(getattr(r, "y_idx", 0) or 0),
+            "tile_polygon": tile_poly,
+            "centroid": centroid,
+            "counts": counts,
+            "total_count": total,
+        })
+    return results
 def postgis_load_rtree(rtree_index, results):
     for idx, result in enumerate(results):
-        result["geometry"] = transform_geometry_3857_to_4326(result["geometry"])
-        rtree_index.insert(idx, result["geometry"].bounds, obj = result)
+        geom = result.get("geometry")
+        if geom is None:
+            continue
+        rtree_index.insert(idx, geom.bounds, obj=result)
 
 
 def create_bounding_box(polygon_points):
@@ -88,7 +117,15 @@ def query_osm_features_advanced(tag_filters, polygon_points, base_columns=None, 
         return None
             
     base_columns = base_columns or ["osm_id", "way"]
-    selected_columns = [osm_table.c[col] for col in base_columns if col in osm_table.c]
+    selected_columns = []
+    for col in base_columns:
+        if col not in osm_table.c:
+            continue
+        if col == "way":
+            # Return geometry in EPSG:4326 to keep the Python side minimal.
+            selected_columns.append(func.ST_Transform(osm_table.c.way, 4326).label("way"))
+        else:
+            selected_columns.append(osm_table.c[col])
     filters = []
     
     for tag, condition in tag_filters.items():
@@ -161,9 +198,16 @@ def query_osm_features(tag_filters, polygon_points, base_columns=None):
     # If you have base columns that should always be returned (like 'osm_id', 'way'),
     # include them. If not, set to empty list.
     base_columns = base_columns or ["osm_id", "way"]
-    
+
     # Start with the base columns. Only add those that exist in the table.
-    selected_columns = [planet_osm_polygon.c[col] for col in base_columns if col in planet_osm_polygon.c]
+    selected_columns = []
+    for col in base_columns:
+        if col not in planet_osm_polygon.c:
+            continue
+        if col == "way":
+            selected_columns.append(func.ST_Transform(planet_osm_polygon.c.way, 4326).label("way"))
+        else:
+            selected_columns.append(planet_osm_polygon.c[col])
     
     filters = []
     

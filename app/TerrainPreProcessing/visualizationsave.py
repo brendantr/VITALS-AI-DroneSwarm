@@ -1,6 +1,5 @@
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString
 from .geometry_utils import haversine
-from .query_disambiguation import disambiguate
 import matplotlib.colors as mcolors
 import numpy as np
 import geopandas as gpd
@@ -11,6 +10,37 @@ import matplotlib.ticker as mticker
 from collections import Counter
 from matplotlib.collections import LineCollection
 from matplotlib.widgets import Button
+
+
+def _classify_highway(highway_value):
+    if not highway_value:
+        return "unknown"
+
+    highway_value = str(highway_value).lower()
+
+    if highway_value in {"highway", "pedestrian_path"}:
+        return highway_value
+
+    road_tags = {
+        "motorway", "trunk", "primary", "secondary", "tertiary",
+        "residential", "unclassified", "service", "living_street",
+    }
+    pedestrian_tags = {
+        "footway", "path", "track", "bridleway", "pedestrian", "cycleway",
+    }
+
+    if highway_value in road_tags:
+        return "highway"
+    if highway_value in pedestrian_tags:
+        return "pedestrian_path"
+
+    return "highway"
+
+
+def disambiguate(tag_type, value):
+    if tag_type == "highway":
+        return _classify_highway(value)
+    return tag_type
 
 def plot_postGIS_data(data, colors = []):
     gdf = gpd.GeoDataFrame(data, crs="EPSG:3857")
