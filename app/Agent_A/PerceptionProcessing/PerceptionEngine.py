@@ -36,7 +36,7 @@ class PerceptionEngine:
         print("Initializing Perception Engine...")
         
         # Initialize YOLO detector
-        self.yolo_detector = YoloDetector(  # ← FIX 1: Make sure attribute name is 'yolo_detector'
+        self.yolo_detector = YoloDetector(
             model_path=yolo_model_path,
             confidence_threshold=yolo_confidence,
             iou_threshold=yolo_iou,
@@ -49,7 +49,7 @@ class PerceptionEngine:
         self.caption_threshold = caption_threshold
         self.device = device
         
-        print("✓ Perception Engine ready")
+        print("Perception Engine ready")
     
     def process_image_path(
         self,
@@ -93,7 +93,7 @@ class PerceptionEngine:
         
         return detections, annotated_img
     
-    def process_image(  # ← FIX 2: Add this method for numpy array input
+    def process_image(
         self,
         image: np.ndarray,
         drone_id: Optional[int] = None,
@@ -173,7 +173,7 @@ class PerceptionEngine:
                     det.enrich(caption=caption)
                     
                 except Exception as e:
-                    print(f"  ⚠ Caption generation failed: {e}")
+                    print(f"Caption generation failed: {e}")
                     det.enrich(caption=None)
             else:
                 print(f"Skipping caption for {det.class_name} (conf={det.confidence:.2f} < {self.caption_threshold})")

@@ -16,7 +16,7 @@ class LLaVACaptioner:
     
     def __init__(
         self,
-        model_name: str = "llava-v1.5-7b",
+        model_name: str = "llava-7b",
         device: str = "cpu",
         max_tokens: int = 50,  # REDUCED from 150 for shorter captions
         temperature: float = 0.7
@@ -313,7 +313,7 @@ class LLaVACaptioner:
             caption = result.get("response", "").strip()
             
             if not caption:
-                print("⚠️  Warning: Empty caption generated")
+                print("Warning: Empty caption generated")
                 caption = "No description available"
             
             # Clean up the caption
@@ -322,16 +322,16 @@ class LLaVACaptioner:
             return caption
             
         except requests.exceptions.ConnectionError:
-            print("❌ Error: Could not connect to Ollama. Is it running?")
+            print("Error: Could not connect to Ollama. Is it running?")
             print("   Start Ollama with: ollama serve")
             return "Error: Ollama not available"
         
         except requests.exceptions.Timeout:
-            print("❌ Error: Caption generation timed out")
+            print("Error: Caption generation timed out")
             return "Error: Caption timeout"
         
         except Exception as e:
-            print(f"❌ Error generating caption: {e}")
+            print(f"Error generating caption: {e}")
             return f"Error: {str(e)}"
     
     def _clean_caption(self, caption: str) -> str:
