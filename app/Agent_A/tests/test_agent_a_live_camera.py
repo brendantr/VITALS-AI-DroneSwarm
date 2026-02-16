@@ -162,7 +162,7 @@ class LiveCameraTest:
                     self._print_controls()
                     
                 # Continuous processing mode
-                if self.continuous_mode and self.frame_count % 30 == 0:  # Every 30 frames (~1 second)
+                if self.continuous_mode and self.frame_count % 120 == 0:  # Every 30 frames (~1 second)
                     self._process_frame(frame, generate_captions=False)
         
         finally:
