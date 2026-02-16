@@ -32,7 +32,7 @@ class TestLLaVACaptioner:
     def get_test_image_path():
         """Get path to test image"""
         app_dir = agent_a_dir.parent
-        return app_dir / "ComputerVision" / "temp" / "drone_testing1.jpg"
+        return app_dir / "Agent_A" / "tests" / "images" / "drone_testing1.jpg"
     
     def test_initialization(self):
         """Test 1: Captioner initializes correctly"""

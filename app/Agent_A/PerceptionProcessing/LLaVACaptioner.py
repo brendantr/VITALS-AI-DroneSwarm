@@ -18,7 +18,7 @@ class LLaVACaptioner:
         self,
         model_name: str = "llava-v1.5-7b",
         device: str = "cpu",
-        max_tokens: int = 150,
+        max_tokens: int = 50,  # REDUCED from 150 for shorter captions
         temperature: float = 0.7
     ):
         """
@@ -26,7 +26,7 @@ class LLaVACaptioner:
         Args:
             model_name: LLaVA model variant to use
             device: Device to run inference on ('cuda' or 'cpu')
-            max_tokens: Maximum tokens in generated caption
+            max_tokens: Maximum tokens in generated caption (reduced for brevity)
             temperature: Sampling temperature (higher = more creative)
         """
         self.model_name = model_name
@@ -37,6 +37,7 @@ class LLaVACaptioner:
         print(f"Initializing LLaVA Captioner...")
         print(f"  Model: {model_name}")
         print(f"  Device: {device}")
+        print(f"  Max tokens: {max_tokens} (2 sentence max)")
         
         # Model will be loaded via Ollama API
         self.model_loaded = True
@@ -80,35 +81,33 @@ class LLaVACaptioner:
     ) -> str:
         """
         Generate contextual caption for a specific detection
+        
         Args:
             image: Full image
             detection_bbox: (x_min, y_min, x_max, y_max) in pixels
             class_name: Detected object class
             confidence: Detection confidence
             context_margin: Margin around bbox to include context
+            
         Returns:
-            Detailed caption describing the detection and context
+            Pure caption (without metadata prefix) - prefix added by Detection object
         """
         # Expand bbox to include context
         expanded_bbox = self._expand_bbox(detection_bbox, context_margin)
         
-        # Create focused prompt
-        prompt = (
-            f"Describe what you see in this image, focusing on the {class_name}. "
-            f"Include details about the {class_name}'s appearance, condition, "
-            f"position, and surrounding environment. Be specific and factual."
-        )
+        # SAR-focused prompt: short, factual, 2 sentences max
+        prompt = self._build_sar_prompt(class_name)
         
+        # Generate caption
         caption = self.caption_image(
             image=image,
             prompt=prompt,
             focus_bbox=expanded_bbox
         )
         
-        # Add metadata prefix
-        full_caption = f"{class_name} (conf: {confidence:.2f}): {caption}"
-        
-        return full_caption
+        # Return PURE caption (no metadata prefix)
+        # The Detection object will add the prefix when needed
+        return caption
     
     def batch_caption(
         self,
@@ -131,6 +130,51 @@ class LLaVACaptioner:
             captions.append(caption)
         
         return captions
+    
+    def _build_sar_prompt(self, class_name: str) -> str:
+        """
+        Build SAR-focused prompt for specific object class
+        
+        Optimized for:
+        - Short output (2 sentences max)
+        - Key SAR-relevant features only
+        - No technical camera/image quality descriptions
+        
+        Args:
+            class_name: Detected object class (person, vehicle, etc.)
+            
+        Returns:
+            Optimized prompt string
+        """
+        # Class-specific SAR prompts
+        if class_name.lower() == "person":
+            return (
+                "In 2 sentences or less: Describe the person's clothing color, "
+                "position, and any visible actions or distress signals. "
+                "Focus only on SAR-relevant details, no camera quality commentary."
+            )
+        
+        elif class_name.lower() in ["vehicle", "car", "truck", "bus"]:
+            return (
+                "In 2 sentences or less: Describe the vehicle's color, type, "
+                "orientation, and condition. "
+                "Focus only on SAR-relevant details, no camera quality commentary."
+            )
+        
+        elif class_name.lower() == "debris":
+            return (
+                "In 2 sentences or less: Describe the debris type, size, "
+                "and any hazards it may pose. "
+                "Focus only on SAR-relevant details, no camera quality commentary."
+            )
+        
+        else:
+            # Generic SAR prompt
+            return (
+                f"In 2 sentences or less: Describe this {class_name}'s appearance, "
+                f"location, and any notable features for search and rescue. "
+                f"Focus only on SAR-relevant details, no camera quality commentary."
+            )
     
     def _prepare_image(
         self,
@@ -228,7 +272,7 @@ class LLaVACaptioner:
             prompt: Optional custom prompt
         
         Returns:
-            Generated caption
+            Generated caption (cleaned and trimmed)
         """
         import requests
         import json
@@ -238,13 +282,13 @@ class LLaVACaptioner:
         image.save(buffered, format="PNG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode()
         
-        # Default prompt for SAR context
+        # Default SAR-focused prompt (if none provided)
         if prompt is None:
             prompt = (
-                "Describe this image in detail. Focus on identifying people, "
-                "objects, and environmental conditions that would be relevant "
-                "for search and rescue operations. Be specific about colors, "
-                "positions, and any visible distress signals."
+                "In 2 sentences or less: Describe key objects, people, "
+                "and environmental conditions relevant for drone search and rescue. "
+                "Focus on colors, positions, and hazards only. "
+                "Do not describe camera quality or image characteristics."
             )
         
         # Prepare Ollama API request
@@ -257,7 +301,7 @@ class LLaVACaptioner:
             "stream": False,
             "options": {
                 "temperature": self.temperature,
-                "num_predict": self.max_tokens
+                "num_predict": self.max_tokens  # Limit output length
             }
         }
         
@@ -269,20 +313,95 @@ class LLaVACaptioner:
             caption = result.get("response", "").strip()
             
             if not caption:
-                print("⚠ Warning: Empty caption generated")
+                print("⚠️  Warning: Empty caption generated")
                 caption = "No description available"
+            
+            # Clean up the caption
+            caption = self._clean_caption(caption)
             
             return caption
             
         except requests.exceptions.ConnectionError:
-            print("Error: Could not connect to Ollama. Is it running?")
-            print("Start Ollama with: ollama serve")
+            print("❌ Error: Could not connect to Ollama. Is it running?")
+            print("   Start Ollama with: ollama serve")
             return "Error: Ollama not available"
         
         except requests.exceptions.Timeout:
-            print("Error: Caption generation timed out")
+            print("❌ Error: Caption generation timed out")
             return "Error: Caption timeout"
         
         except Exception as e:
-            print(f"Error generating caption: {e}")
+            print(f"❌ Error generating caption: {e}")
             return f"Error: {str(e)}"
+    
+    def _clean_caption(self, caption: str) -> str:
+        """
+        Clean and filter caption output
+        
+        Removes:
+        - Camera quality commentary
+        - Technical image descriptions
+        - Unnecessary preambles
+        
+        Args:
+            caption: Raw caption from LLaVA
+            
+        Returns:
+            Cleaned caption
+        """
+        # Remove common unwanted phrases
+        unwanted_phrases = [
+            "the image appears to be",
+            "this image shows",
+            "the image is",
+            "it appears to be",
+            "the photo shows",
+            "the picture shows",
+            "captured with a",
+            "taken with a",
+            "smartphone",
+            "low resolution",
+            "high resolution",
+            "the quality of",
+            "image quality",
+            "the camera",
+            "camera flash",
+            "visible in the image",
+            "visible in the photo",
+            "can be seen in"
+        ]
+        
+        caption_lower = caption.lower()
+        
+        # Check if caption is mostly unwanted commentary
+        unwanted_count = sum(1 for phrase in unwanted_phrases if phrase in caption_lower)
+        
+        if unwanted_count >= 3:
+            # Caption is too focused on image quality, return generic
+            return "Scene detected, details unclear."
+        
+        # Remove unwanted phrases
+        for phrase in unwanted_phrases:
+            # Case-insensitive replacement
+            import re
+            pattern = re.compile(re.escape(phrase), re.IGNORECASE)
+            caption = pattern.sub("", caption)
+        
+        # Clean up whitespace and capitalization
+        caption = caption.strip()
+        caption = " ".join(caption.split())  # Normalize whitespace
+        
+        # Ensure first letter is capitalized
+        if caption:
+            caption = caption[0].upper() + caption[1:]
+        
+        # Ensure it ends with punctuation
+        if caption and caption[-1] not in ".!?":
+            caption += "."
+        
+        # Limit to approximately 2 sentences
+        sentences = caption.split('. ')
+        if len(sentences) > 2:
+            caption = '. '.join(sentences[:2]) + '.'
+        
+        return caption
