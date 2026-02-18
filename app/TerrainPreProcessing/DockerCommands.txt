@@ -1,19 +1,18 @@
-1. Create docker volume 
+1. Create docker volume (holds all of the unrendered tile maps)
 
 docker volume create osm-data
 
-2. Importing PBF
+2. Importing PBF (creates a container to just import the PBF file into the osm-data volume)
 
 docker run -v C:\Users\Banka\Downloads\us-south-latest.osm.pbf:/data/region.osm.pbf -v osm-data:/data/database/ overv/openstreetmap-tile-server import
 
-3. Creating Tile Partition
+3. Creating Tile Partition (for saving rendered tiles as basically a cache)
 
 docker volume create osm-tiles
-docker run -p 8080:80 -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ -d overv/openstreetmap-tile-server run
 
-4. Running the server
+4. Running the server (the actual server that can be communicated with)
 
-docker run --rm -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+docker run -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="10.0" -d overv/openstreetmap-tile-server run
 
 
 

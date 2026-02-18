@@ -15,7 +15,7 @@ fi
 
 ../Downloads/QGroundControl-x86_64.AppImage &
 
-sleep 75
+sleep 50
 
 echo "QGC loaded"
 
