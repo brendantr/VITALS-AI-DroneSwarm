@@ -77,4 +77,5 @@ class HomePage(customtkinter.CTkFrame):
 
     def start_real_mission(self):
         """Start a real mission."""
+        self.gui_ref.isSimulation = False
         self.gui_ref.show_map_page()

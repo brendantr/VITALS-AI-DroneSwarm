@@ -50,6 +50,19 @@ class MapPage(customtkinter.CTkFrame):
         )
         self.start_polygon_button.grid(row=3, column=0, pady=10, padx=20, sticky="w")
 
+        # Polygon editing buttons frame (hidden by default)
+        self.polygon_edit_frame = customtkinter.CTkFrame(self.sidebar, fg_color="transparent")
+
+        self.undo_polygon_button = customtkinter.CTkButton(
+            self.polygon_edit_frame, text="Undo Last Point", width=80, command=self.undo_last_polygon_point
+        )
+        self.undo_polygon_button.pack(side="left", padx=5)
+
+        self.reset_polygon_button = customtkinter.CTkButton(
+            self.polygon_edit_frame, text="Reset", width=60, command=self.reset_polygon
+        )
+        self.reset_polygon_button.pack(side="left", padx=5)
+
         self.connect_button = customtkinter.CTkButton(
             self.sidebar, text="Connect to Mavlink", command=self.gui_ref.call_mavlink_connection
         )
@@ -241,24 +254,15 @@ class MapPage(customtkinter.CTkFrame):
             self.first_polygon_point = False
             return
         elif self.editing_polygon:
-            #self.polygon_points.append(coordinates_tuple)
-            self.polygon.add_position(coordinates_tuple[0], coordinates_tuple[1])
+            self.polygon_points.append(coordinates_tuple)
+            # Delete and recreate the polygon to ensure consistency with undo
+            if self.polygon is not None:
+                self.polygon.delete()
+            self.polygon = self.map_widget.set_polygon(self.polygon_points, fill_color=None)
             return
         elif self.gui_ref.choosing_gcs_location:
-            #create popup to confirm this is the desired GCS location
-            confirm_popup = customtkinter.CTkToplevel(self)
-            confirm_popup.title("Confirm GCS Location")
-            confirm_popup.geometry("300x150")
-            confirm_popup.resizable(False, False)
-            #ensure window is at top level
-            confirm_popup.attributes('-topmost', True)
-            confirm_popup.grab_set()  # Make it modal
-            confirm_label = customtkinter.CTkLabel(confirm_popup, text="Confirm this as GCS location?", font=("Arial", 14))
-            confirm_label.pack(pady=20)
-            confirm_button = customtkinter.CTkButton(confirm_popup, text="Confirm", command=lambda: self.gui_ref.set_gcs_location(coordinates_tuple, confirm_popup))
-            confirm_button.pack(pady=10)
-            cancel_button = customtkinter.CTkButton(confirm_popup, text="Cancel", command=confirm_popup.destroy)
-            cancel_button.pack(pady=5)
+            # Directly place the GCS marker without confirmation popup
+            self.gui_ref.set_gcs_location(coordinates_tuple)
             return
         else:
             pass
@@ -280,9 +284,14 @@ class MapPage(customtkinter.CTkFrame):
 
     def start_creating_polygon(self):
         if self.editing_polygon:
+            # Finishing polygon editing
             self.editing_polygon = False
             self.start_polygon_button.configure(text="Mission Area Created")
             self.start_polygon_button.configure(state="disabled")
+            # Hide polygon edit buttons and restore button positions
+            self.polygon_edit_frame.grid_forget()
+            self.end_mission_button.grid(row=4, column=0, pady=10, padx=20, sticky="w")
+            self.debug_button.grid(row=5, column=0, pady=10, padx=20, sticky="w")
             self.polygon.name = "Mission Area"
             self.gui_ref.sendMissionPolygon(self.polygon_points)
             if(self.gui_ref.isSimulation):
@@ -292,10 +301,16 @@ class MapPage(customtkinter.CTkFrame):
 
             print(self.polygon_points)
         else:
+            # Starting polygon editing
             self.first_polygon_point = True
             self.editing_polygon = True
             # Disable GCS button once polygon drawing starts
             self.place_gcs_button.configure(state="disabled")
+            # Show polygon edit buttons below the polygon button
+            self.polygon_edit_frame.grid(row=4, column=0, pady=(0, 10), padx=20, sticky="w")
+            # Shift other buttons down
+            self.end_mission_button.grid(row=5, column=0, pady=10, padx=20, sticky="w")
+            self.debug_button.grid(row=6, column=0, pady=10, padx=20, sticky="w")
             # change button text
             self.start_polygon_button.configure(text="Finish Creating Polygon")
 
@@ -309,6 +324,44 @@ class MapPage(customtkinter.CTkFrame):
 
     def get_polygon_points(self):
         return self.polygon_points
+
+    def undo_last_polygon_point(self):
+        """Remove the last placed polygon point."""
+        if len(self.polygon_points) == 0:
+            return
+
+        # Remove the last point
+        self.polygon_points.pop()
+
+        # Delete the current polygon
+        if hasattr(self, 'polygon') and self.polygon is not None:
+            self.polygon.delete()
+            self.polygon = None
+
+        # Recreate the polygon with remaining points
+        if len(self.polygon_points) > 0:
+            self.polygon = self.map_widget.set_polygon(self.polygon_points, fill_color=None)
+            self.first_polygon_point = False
+        else:
+            # No points left, ready for first point again
+            self.first_polygon_point = True
+
+        self.gui_ref.create_system_chat_message(f"Removed last point. {len(self.polygon_points)} points remaining.")
+
+    def reset_polygon(self):
+        """Clear all polygon points and start over."""
+        # Clear the points list
+        self.polygon_points = []
+
+        # Delete the current polygon
+        if hasattr(self, 'polygon') and self.polygon is not None:
+            self.polygon.delete()
+            self.polygon = None
+
+        # Reset to initial state
+        self.first_polygon_point = True
+
+        self.gui_ref.create_system_chat_message("Polygon reset. Click on the map to start placing points.")
 
     def add_poi(self, lat, lon, name, description=""):
         poi_count = len(self.pois) + 1

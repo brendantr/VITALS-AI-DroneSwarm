@@ -50,10 +50,35 @@ class GUI:
         mission_id = currentDateTime.strftime('%Y-%m-%d_%H-%M-%S')
         # Create Mission Folder
         os.makedirs(f"missions/{mission_id}", exist_ok=True)
+
+        # Reset state for new mission
+        self.reset_for_new_mission()
+        self.missionState.reset_for_new_mission()
+        self.map_page.reset_for_new_mission()
+
         self.map_page.gui_ref.missionState.set_missionID(mission_id)
         self.home_page.pack_forget()
         self.map_page.pack(fill="both", expand=True)
         self.create_system_chat_message(f"Welcome to VITALS! I am your AI assistant. Please connect to mavlink with the button on the left sidebar to start the mission. Your mission ID is {mission_id}.")
+
+    def reset_for_new_mission(self):
+        """Reset GUI state for a new mission."""
+        self.missionStarted = False
+        self.has_centered_on_drone = False
+        self.choosing_gcs_location = False
+        self.isAddingDetectionPoints = False
+
+        # Clear detection points
+        for marker in self.detection_point_markers:
+            marker.delete()
+        self.detection_points = []
+        self.detection_point_markers = []
+
+        # Clear GCS marker
+        if self.gcs_marker is not None:
+            self.gcs_marker.delete()
+            self.gcs_marker = None
+        self.gcs_location = None
 
     def run(self):
         self.app.mainloop()

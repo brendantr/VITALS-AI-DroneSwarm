@@ -78,20 +78,25 @@ class MapPage(customtkinter.CTkFrame):
         )
         self.end_mission_button.grid(row=4, column=0, pady=10, padx=20, sticky="w")
 
+        self.view_path_button = customtkinter.CTkButton(
+            self.sidebar, text="View Path Plan", state="disabled", command=self.show_path_visualization
+        )
+        self.view_path_button.grid(row=5, column=0, pady=10, padx=20, sticky="w")
+
         self.debug_button = customtkinter.CTkButton(
             self.sidebar, text="Debug Menu", command=self.open_debug_popup
         )
-        self.debug_button.grid(row=5, column=0, pady=10, padx=20, sticky="w")
+        self.debug_button.grid(row=6, column=0, pady=10, padx=20, sticky="w")
 
         # Back button
         back_button = customtkinter.CTkButton(
             self.sidebar, text="Back to Home", command=self.switch_to_home
         )
-        back_button.grid(row=6, column=0, pady=10, padx=20, sticky="w")
+        back_button.grid(row=7, column=0, pady=10, padx=20, sticky="w")
 
         # drone info container
         self.drone_info_container = customtkinter.CTkFrame(self.sidebar)
-        self.drone_info_container.grid(row=5, column=0, pady=10, padx=20, rowspan=8, sticky="nsew")
+        self.drone_info_container.grid(row=8, column=0, pady=10, padx=20, rowspan=8, sticky="nsew")
         self.drone_info_Label = customtkinter.CTkLabel(self.drone_info_container, text="Drones", font=("Arial", 20))
         self.drone_info_Label.grid(row=0, column=0, pady=10, padx=20, sticky="nsew")
 
@@ -225,6 +230,10 @@ class MapPage(customtkinter.CTkFrame):
             self.debug_window.destroy()
             self.debug_window = None
 
+    def show_path_visualization(self):
+        """Opens the path visualization window on-demand."""
+        self.gui_ref.missionState.showPathVisualization()
+
     def add_job(self, drone_id, job_text, inprogress=False):
         """
         Adds a new job to the scrollable frame for the given drone_id (1-4).
@@ -291,13 +300,18 @@ class MapPage(customtkinter.CTkFrame):
             # Hide polygon edit buttons and restore button positions
             self.polygon_edit_frame.grid_forget()
             self.end_mission_button.grid(row=4, column=0, pady=10, padx=20, sticky="w")
-            self.debug_button.grid(row=5, column=0, pady=10, padx=20, sticky="w")
+            self.view_path_button.grid(row=5, column=0, pady=10, padx=20, sticky="w")
+            self.view_path_button.configure(state="normal")
+            self.debug_button.grid(row=6, column=0, pady=10, padx=20, sticky="w")
             self.polygon.name = "Mission Area"
             self.gui_ref.sendMissionPolygon(self.polygon_points)
             if(self.gui_ref.isSimulation):
-
                 self.gui_ref.start_adding_detection_points()
                 self.gui_ref.create_system_chat_message("Mission Area has been defined and terrain has been processed. For the simulation, please add detection points to the map. When you are done, right click the map and select 'Finish Adding Detection Points'")
+            else:
+                # Real mission - enable start button directly without requiring detection points
+                self.gui_ref.create_system_chat_message("Mission Area has been defined. You can now begin the mission.")
+                self.end_mission_button.configure(state="normal")
 
             print(self.polygon_points)
         else:
@@ -310,7 +324,8 @@ class MapPage(customtkinter.CTkFrame):
             self.polygon_edit_frame.grid(row=4, column=0, pady=(0, 10), padx=20, sticky="w")
             # Shift other buttons down
             self.end_mission_button.grid(row=5, column=0, pady=10, padx=20, sticky="w")
-            self.debug_button.grid(row=6, column=0, pady=10, padx=20, sticky="w")
+            self.view_path_button.grid(row=6, column=0, pady=10, padx=20, sticky="w")
+            self.debug_button.grid(row=7, column=0, pady=10, padx=20, sticky="w")
             # change button text
             self.start_polygon_button.configure(text="Finish Creating Polygon")
 
@@ -362,6 +377,43 @@ class MapPage(customtkinter.CTkFrame):
         self.first_polygon_point = True
 
         self.gui_ref.create_system_chat_message("Polygon reset. Click on the map to start placing points.")
+
+    def reset_for_new_mission(self):
+        """Reset MapPage state for a new mission."""
+        # Clear polygon
+        self.polygon_points = []
+        if hasattr(self, 'polygon') and self.polygon is not None:
+            self.polygon.delete()
+            self.polygon = None
+        self.first_polygon_point = False
+        self.editing_polygon = False
+
+        # Clear POIs from map
+        for poi in self.pois:
+            if hasattr(poi, 'marker') and poi.marker is not None:
+                poi.marker.delete()
+            if hasattr(poi, 'info_widget') and poi.info_widget is not None:
+                poi.info_widget.poi_info.destroy()
+        self.pois = []
+
+        # Reset button states
+        self.connect_button.configure(state="normal", text="Connect to Mavlink")
+        self.place_gcs_button.configure(state="disabled", text="Place GCS")
+        self.start_polygon_button.configure(state="disabled", text="Start Creating Polygon")
+        self.end_mission_button.configure(state="disabled", text="Start Mission", command=self.gui_ref.call_start_mission)
+        self.view_path_button.configure(state="disabled")
+
+        # Restore button grid positions
+        self.polygon_edit_frame.grid_forget()
+        self.end_mission_button.grid(row=4, column=0, pady=10, padx=20, sticky="w")
+        self.view_path_button.grid(row=5, column=0, pady=10, padx=20, sticky="w")
+        self.debug_button.grid(row=6, column=0, pady=10, padx=20, sticky="w")
+
+        # Show/hide debug button based on mission type
+        if self.gui_ref.isSimulation:
+            self.debug_button.grid(row=6, column=0, pady=10, padx=20, sticky="w")
+        else:
+            self.debug_button.grid_forget()
 
     def add_poi(self, lat, lon, name, description=""):
         poi_count = len(self.pois) + 1

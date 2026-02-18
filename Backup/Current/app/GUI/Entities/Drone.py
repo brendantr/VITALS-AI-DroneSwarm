@@ -48,31 +48,29 @@ class Drone:
         Okay, so this is the one that displays the drone's positions.
     """
     def setPosition(self, lat, lon, altitude, relative_altitude, heading, vx, vy, vz):
-        #convert lat and lon from 7 decimal int to float
-        converted_lat = lat / 10000000
-        converted_lon = lon / 10000000
-        self.position = (converted_lat, converted_lon)
+        # Coordinates are already converted to decimal degrees by GUI.py
+        self.position = (lat, lon)
         self.altitude = altitude
         self.relative_altitude = relative_altitude
-        converted_heading = heading/1e2
+        converted_heading = heading / 1e2
         self.vx = vx
         self.vy = vy
         self.vz = vz
         # set marker on map
         if self.marker is None:
-            self.marker = self.map_widget.set_marker(converted_lat, converted_lon, icon_anchor ="center", text=f"Drone {self.id}", icon=self._load_icon("./assets/camera-drone.png"), font = ("Arial", 12, "bold"))
+            self.marker = self.map_widget.set_marker(lat, lon, icon_anchor="center", text=f"Drone {self.id}", icon=self._load_icon("./assets/camera-drone.png"), font=("Arial", 12, "bold"))
         else:
-            self.marker.set_position(converted_lat, converted_lon)
+            self.marker.set_position(lat, lon)
 
         # create heading path on map
-        #calculate 10m point based on heading
+        # calculate 10m point based on heading
         heading_rad = math.radians(converted_heading)
         lat_offset = 0.0005 * math.cos(heading_rad)
         lon_offset = 0.0005 * math.sin(heading_rad)
         if self.heading_path is not None:
             self.heading_path.delete()
             self.heading_path = None
-        self.heading_path = self.map_widget.set_path(position_list = [(converted_lat, converted_lon), (converted_lat + lat_offset, converted_lon + lon_offset)], width=2, color="red")
+        self.heading_path = self.map_widget.set_path(position_list=[(lat, lon), (lat + lat_offset, lon + lon_offset)], width=2, color="red")
 
         # calculate velocity
         velocity = math.hypot(vx, vy)

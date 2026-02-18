@@ -241,8 +241,20 @@ class missionState:
 
         #for simulation purposes
         self.detectionPoints = []
-        
-        
+        self.visualization_ready = False
+
+    def reset_for_new_mission(self):
+        """Reset missionState for a new mission while preserving MAVLink connection."""
+        self.pois = []
+        self.detectionPoints = []
+        self.visualization_ready = False
+        self.missionPolygon = None
+        self.missionGrid = None
+        self.rtree = None
+        self.viable_grid_positions = None
+        self.drone_search_destinations = None
+        self.gcs_location = None
+
     def connect_to_mavlink(self):
         success = self.dispatcher.connect()
         if success:
@@ -311,11 +323,19 @@ class missionState:
         self.rtree = rtree
         self.missionPolygon = polygon
         self.doPathPlanning()
-        new_visualization = Interactive_Visualization(self)
-        #new_visualization.initalize_plot(rtree, grid, polygon, {"building": (1, 0, 0, 1.0), "water":(0.0, 0.0, 1.0, 1.0), "highway":{"highway":(1, 0, 0, 1),"pedestrian_path":(0, 0, 1, 1)}}, show_grid=True,polygon_darkening_factor=0, drone_paths=self.drone_search_destinations)
-        self.visualization_thread = threading.Thread(
-        target=new_visualization.initalize_plot,
-            args=(rtree, grid, polygon, {
+        # Store visualization config for on-demand display
+        self.visualization_ready = True
+
+    def showPathVisualization(self):
+        """Launch the path visualization on-demand."""
+        if not self.visualization_ready:
+            print("Visualization not ready - polygon not yet created")
+            return
+
+        visualization = Interactive_Visualization(self)
+        visualization_thread = threading.Thread(
+            target=visualization.initalize_plot,
+            args=(self.rtree, self.missionGrid, self.missionPolygon, {
                 "building": (1, 0, 0, 1.0),
                 "water": (0.0, 0.0, 1.0, 1.0),
                 "highway": {
@@ -330,9 +350,7 @@ class missionState:
             },
             daemon=True
         )
-        self.visualization_thread.start()
-        #plot_postGIS_data(rtree, grid, polygon, {"building": (1, 0, 0, 1.0), "water":(0.0, 0.0, 1.0, 1.0), "highway":{"highway":(1, 0, 0, 1),"pedestrian_path":(0, 0, 1, 1)}}, show_grid=True,polygon_darkening_factor=0, insta_plot=True)
-        #Need to calculate the path planning stuff after. 
+        visualization_thread.start()
 
     def doPathPlanning(self):
         #pass the grid, current_drone_positions(In ID Order, long-lat pairs), and number of drones(If you don't pass the drone positions)

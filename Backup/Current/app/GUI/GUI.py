@@ -27,6 +27,7 @@ class GUI:
 
         self.isSimulation = False
         self.missionStarted = False
+        self.has_centered_on_drone = False
 
         self.detection_points = []
         self.detection_point_markers = []
@@ -77,9 +78,24 @@ class GUI:
         self.missionState.addMissionPolygon(polygon_points)
 
     def updateDronePosition(self, drone_id, lat, lon, altitude, relative_altitude, heading, vx, vy, vz):
+        # Convert from MAVLink scaled integer format if needed (1e-7 scaling)
+        if abs(lat) > 90 or abs(lon) > 180:
+            lat = lat / 1e7
+            lon = lon / 1e7
+
         drone = next((drone for drone in self.map_page.drones if drone.id == drone_id), None)
         if drone is not None:
             drone.setPosition(lat, lon, altitude, relative_altitude, heading, vx, vy, vz)
+
+            # Center the map on the first drone position received
+            if not self.has_centered_on_drone and lat != 0 and lon != 0:
+                print(f"DEBUG: Centering map on drone {drone_id} at ({lat}, {lon})")
+                self.map_page.map_widget.set_position(lat, lon)
+                self.map_page.map_widget.set_zoom(17)  # Zoom in for better visibility
+                self.has_centered_on_drone = True
+                self.create_system_chat_message(f"Map centered on drone {drone_id} position.")
+        else:
+            print(f"DEBUG: updateDronePosition called but drone {drone_id} not found. lat={lat}, lon={lon}")
 
     def updateDroneTelemetry(self, drone_id, roll, pitch, yaw):
         drone = next((drone for drone in self.map_page.drones if drone.id == drone_id), None)
@@ -87,6 +103,7 @@ class GUI:
             drone.setTelemetry(roll, pitch, yaw)
 
     def addDrone(self, drone_id, system_status):
+        print(f"DEBUG: Adding drone {drone_id} with status {system_status}")
         self.map_page._add_drone(drone_id, system_status)
 
     def updateDroneStatus(self, drone_id, system_status):
@@ -202,21 +219,20 @@ class GUI:
     def call_start_search_mission(self):
         self.missionState.startSearchMission()
 
-    def set_gcs_location(self, coordinates_tuple, confirm_popup):
-        """Set the GCS location and close the confirmation popup."""
-
+    def set_gcs_location(self, coordinates_tuple):
+        """Set the GCS location."""
         self.gcs_location = coordinates_tuple
         self.missionState.set_gcs_location(coordinates_tuple)
         self.choosing_gcs_location = False
 
-        #load icon from assets folder
-        def _load_icon(self, path):
+        # Load icon from assets folder
+        def _load_icon(path):
             image = PIL.Image.open(path)
             image = image.resize((50, 50))
             return PIL.ImageTk.PhotoImage(image)
 
         gcs_icon_path = "./assets/gcs.png"
-        gcs_icon = _load_icon(self, gcs_icon_path)
+        gcs_icon = _load_icon(gcs_icon_path)
 
         self.gcs_marker = self.map_page.map_widget.set_marker(
             coordinates_tuple[0], coordinates_tuple[1],
@@ -226,7 +242,6 @@ class GUI:
         )
         print(f"GCS location set to: {coordinates_tuple}")
         self.create_system_chat_message("GCS location set successfully.")
-        confirm_popup.destroy()
         # Clean up the preview marker and motion binding
         self.map_page.finalize_gcs_placement()
         self.map_page.place_gcs_button.configure(text="Remove GCS")
