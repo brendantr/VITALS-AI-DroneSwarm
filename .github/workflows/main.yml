@@ -21,13 +21,62 @@ jobs:
         docker version
         docker compose version
 
+    - name: Cache Docker volume data
+      uses: actions/cache@v4
+      with:
+        path: /tmp/docker-volumes
+        key: docker-volumes-osm-${{ runner.os }}-${{ hashFiles('app/TerrainPreProcessing/docker-compose.yml') }}
+        restore-keys: |
+          docker-volumes-osm-${{ runner.os }}-
+
+    - name: Restore Docker volumes from cache
+      id: restore-volumes
+      run: |
+        IMPORT_NEEDED=true
+        for vol in osm-data osm-tiles; do
+          docker volume create "terrainpreprocessing_${vol}"
+          if [ -f "/tmp/docker-volumes/${vol}.tar" ]; then
+            echo "Restoring ${vol} from cache..."
+            docker run --rm \
+              -v "terrainpreprocessing_${vol}:/volume" \
+              -v /tmp/docker-volumes:/backup \
+              alpine tar xf "/backup/${vol}.tar" -C /volume
+          else
+            echo "No cached data for ${vol}, starting fresh."
+          fi
+        done
+        # Check if osm-data volume already has data (import was done before)
+        FILE_COUNT=$(docker run --rm -v terrainpreprocessing_osm-data:/volume alpine sh -c "ls /volume/ 2>/dev/null | wc -l")
+        if [ "$FILE_COUNT" -gt "0" ]; then
+          echo "osm-data volume already populated, skipping import."
+          IMPORT_NEEDED=false
+        fi
+        echo "import_needed=$IMPORT_NEEDED" >> $GITHUB_OUTPUT
+
+    - name: Download OSM PBF file
+      if: steps.restore-volumes.outputs.import_needed == 'true'
+      run: |
+        echo "Downloading us-south-latest.osm.pbf from Geofabrik..."
+        curl -L -o /tmp/us-south-latest.osm.pbf \
+          https://download.geofabrik.de/north-america/us-south-latest.osm.pbf
+
+    - name: Import PBF into osm-data volume
+      if: steps.restore-volumes.outputs.import_needed == 'true'
+      run: |
+        echo "Importing PBF into osm-data volume (this may take a while)..."
+        docker run --rm \
+          -v /tmp/us-south-latest.osm.pbf:/data/region.osm.pbf \
+          -v terrainpreprocessing_osm-data:/data/database/ \
+          --shm-size="8g" \
+          overv/openstreetmap-tile-server import
+
     - name: Build Docker Compose services
-      working-directory: ./app
+      working-directory: ./app/TerrainPreProcessing
       run: |
         docker compose -f docker-compose.yml build
 
     - name: Start Docker Compose services
-      working-directory: ./app
+      working-directory: ./app/TerrainPreProcessing
       run: |
         docker compose -f docker-compose.yml up -d
 
@@ -37,7 +86,7 @@ jobs:
         sleep 30
 
     - name: Check running containers
-      working-directory: ./app
+      working-directory: ./app/TerrainPreProcessing
       run: |
         docker compose -f docker-compose.yml ps
 
@@ -52,7 +101,7 @@ jobs:
 
     - name: Show container logs on failure
       if: failure()
-      working-directory: ./app
+      working-directory: ./app/TerrainPreProcessing
       run: |
         docker compose -f docker-compose.yml logs
     
@@ -65,8 +114,20 @@ jobs:
       run: |
         pytest -v ./app/Tests/
 
+    - name: Save Docker volumes to cache
+      if: always()
+      run: |
+        mkdir -p /tmp/docker-volumes
+        for vol in osm-data osm-tiles; do
+          echo "Saving ${vol} to cache..."
+          docker run --rm \
+            -v "terrainpreprocessing_${vol}:/volume" \
+            -v /tmp/docker-volumes:/backup \
+            alpine tar cf "/backup/${vol}.tar" -C /volume .
+        done
+
     - name: Stop and remove Docker Compose services
       if: always()
-      working-directory: ./app
+      working-directory: ./app/TerrainPreProcessing
       run: |
-        docker compose -f docker-compose.yml down -v
+        docker compose -f docker-compose.yml down
