@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from sqlalchemy import MetaData, Table, and_, create_engine, func, or_, select, text
 from sqlalchemy.exc import OperationalError
 from geoalchemy2.shape import from_shape, to_shape
@@ -8,6 +11,89 @@ from shapely import wkt as shapely_wkt
 engine = None
 metadata = None
 planet_osm_polygon = None
+
+
+def _get_postgis_url() -> str:
+    """Return a Postgres connection URL.
+
+    Defaults to the common OpenStreetMap tile-server creds (`renderer`/`gis`).
+    Override via env vars to match your deployment.
+    """
+    for key in ("VITALS_POSTGIS_URL", "POSTGIS_URL", "DATABASE_URL"):
+        value = os.getenv(key)
+        if value:
+            return value
+    return "postgresql://renderer:renderer@localhost:5432/gis"
+
+
+def _sql_file_path() -> Path:
+    return Path(__file__).resolve().parent / "sql" / "vitals_tile_grid.sql"
+
+
+def _vitals_tile_function_exists(conn) -> bool:
+    # conn: SQLAlchemy Connection
+    exists_sql = text(
+        """
+        SELECT 1
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'vitals'
+          AND p.proname = 'get_tile_counts_4326'
+        LIMIT 1;
+        """
+    )
+    return conn.execute(exists_sql).first() is not None
+
+
+def ensure_vitals_tile_sql_installed() -> bool:
+    """Install the SQL in TerrainPreProcessing/sql into the connected DB.
+
+    This is opt-in (set env `VITALS_AUTO_INSTALL_TILE_SQL=1`).
+    Returns True if the function exists or was installed successfully.
+    """
+    if os.getenv("VITALS_AUTO_INSTALL_TILE_SQL", "0") not in ("1", "true", "TRUE", "yes", "YES"):
+        return False
+
+    global engine
+    try:
+        engine = create_engine(_get_postgis_url()) if engine is None else engine
+    except OperationalError as e:
+        print(f"Error connecting to PostGIS database: {e}")
+        return False
+
+    with engine.connect() as conn:
+        if _vitals_tile_function_exists(conn):
+            return True
+
+    sql_path = _sql_file_path()
+    if not sql_path.exists():
+        print(f"Missing SQL file: {sql_path}")
+        return False
+
+    sql_text = sql_path.read_text(encoding="utf-8")
+
+    # Use a raw DB-API cursor so the full file (multiple statements, $$ blocks)
+    # is executed as-is.
+    raw_conn = engine.raw_connection()
+    try:
+        cur = raw_conn.cursor()
+        try:
+            cur.execute(sql_text)
+        finally:
+            cur.close()
+        raw_conn.commit()
+    except Exception as e:
+        try:
+            raw_conn.rollback()
+        except Exception:
+            pass
+        print(f"Failed to install vitals tile SQL: {e}")
+        return False
+    finally:
+        raw_conn.close()
+
+    with engine.connect() as conn:
+        return _vitals_tile_function_exists(conn)
 
 
 def _polygon_points_to_wkt_4326(polygon_points):
@@ -36,10 +122,13 @@ def query_tile_counts_4326(polygon_points, tile_size_m=60):
     """
     global engine
     try:
-        engine = create_engine('postgresql://renderer:renderer@localhost:5432/gis') if engine is None else engine
+        engine = create_engine(_get_postgis_url()) if engine is None else engine
     except OperationalError as e:
         print(f"Error connecting to PostGIS database: {e}")
         return None
+
+    # Optional: auto-install SQL helper functions into the DB.
+    ensure_vitals_tile_sql_installed()
 
     polygon_wkt = _polygon_points_to_wkt_4326(polygon_points)
     sql = text(
@@ -109,7 +198,7 @@ def query_osm_features_advanced(tag_filters, polygon_points, base_columns=None, 
     # Dynamically select the table based on the provided table_name.
     global engine, metadata
     try:
-        engine = create_engine('postgresql://renderer:renderer@localhost:5432/gis') if engine is None else engine
+        engine = create_engine(_get_postgis_url()) if engine is None else engine
         metadata = MetaData(schema="public") if metadata is None else metadata
         osm_table = Table(table_name, metadata, autoload_with=engine)
     except OperationalError as e:
@@ -173,7 +262,7 @@ def query_osm_features(tag_filters, polygon_points, base_columns=None):
     global engine, metadata, planet_osm_polygon
     # Set up your engine; adjust the connection string as needed.
     try:
-        engine = create_engine('postgresql://renderer:renderer@localhost:5432/gis') if engine is None else engine
+        engine = create_engine(_get_postgis_url()) if engine is None else engine
 
         # Create a MetaData instance and reflect the table. Note: no columns are hardcoded.
         metadata = MetaData(schema="public") if metadata is None else metadata
