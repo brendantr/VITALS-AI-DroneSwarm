@@ -204,6 +204,9 @@ class DataFusion:
                 if track.update(detection, self.frame_number, timestamp):
                     updated_tracks.append(track)
                     matched = True
+                    # Register drone association even when updating an existing track
+                    if drone_id is not None and track not in self.drone_tracks[drone_id]:
+                        self.drone_tracks[drone_id].append(track)
                     break
             
             if not matched:
@@ -230,7 +233,7 @@ class DataFusion:
         for track in self.active_tracks:
             age = self.frame_number - track.detections[-1][1]  # frames since last update
             
-            if age <= self.max_track_age:
+            if age < self.max_track_age:
                 active.append(track)
             else:
                 # Move to completed if it was stable

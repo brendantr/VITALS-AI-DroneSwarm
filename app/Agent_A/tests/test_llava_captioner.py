@@ -31,8 +31,7 @@ class TestLLaVACaptioner:
     @staticmethod
     def get_test_image_path():
         """Get path to test image"""
-        app_dir = agent_a_dir.parent
-        return app_dir / "Agent_A" / "tests" / "images" / "drone_testing1.jpg"
+        return agent_a_dir / "tests" / "images" / "drone_testing1.jpg"
     
     def test_initialization(self):
         """Test 1: Captioner initializes correctly"""
@@ -333,7 +332,7 @@ def run_all_tests():
     print("\nPrerequisites:")
     print("  1. Ollama server running: ollama serve")
     print("  2. LLaVA model installed: ollama pull llava")
-    print("  3. Test image exists: ComputerVision/temp/drone_testing1.jpg")
+    print("  3. Test image exists: Agent_A/tests/images/drone_testing1.jpg")
     
     return passed, failed
 

@@ -282,7 +282,7 @@ class LLaVACaptioner:
         image.save(buffered, format="PNG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode()
         
-        # Default SAR-focused prompt (if none provided)
+        # Default prompt
         if prompt is None:
             prompt = (
                 "In 2 sentences or less: Describe key objects, people, "

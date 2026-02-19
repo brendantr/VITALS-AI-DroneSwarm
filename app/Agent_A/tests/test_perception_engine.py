@@ -5,10 +5,10 @@ Integration tests for PerceptionEngine module.
 Tests YOLO + LLaVA orchestration and enrichment logic.
 
 Prerequisites:
-    - YOLO model: ComputerVision/CVModels/rf3v1.pt
+    - YOLO model: Agent_A/PerceptionProcessing/yolo_models/rf3v1.pt
     - Ollama server running: ollama serve
     - LLaVA model installed: ollama pull llava
-    - Test image: ComputerVision/temp/drone_testing1.jpg
+    - Test image: Agent_A/tests/images/drone_testing1.jpg
 
 Run:
     python tests/test_perception_engine.py
@@ -33,11 +33,10 @@ class TestPerceptionEngine:
     @staticmethod
     def get_paths():
         """Get standard paths for testing"""
-        app_dir = agent_a_dir.parent
         return {
-            'model': app_dir / "ComputerVision" / "CVModels" / "rf3v1.pt",
-            'image': app_dir / "ComputerVision" / "temp" / "drone_testing1.jpg",
-            'output': agent_a_dir / "output"
+            'model':  agent_a_dir / "PerceptionProcessing" / "yolo_models" / "rf3v1.pt",
+            'image':  agent_a_dir / "tests" / "images" / "drone_testing1.jpg",
+            'output': agent_a_dir / "tests" / "output"
         }
     
     def test_engine_initialization(self):
@@ -477,10 +476,10 @@ def run_all_tests():
         print("="*80)
     
     print("\nPrerequisites:")
-    print("  1. YOLO model: ComputerVision/CVModels/rf3v1.pt")
+    print("  1. YOLO model: Agent_A/PerceptionProcessing/yolo_models/rf3v1.pt")
     print("  2. Ollama server: ollama serve")
     print("  3. LLaVA model: ollama pull llava")
-    print("  4. Test image: ComputerVision/temp/drone_testing1.jpg")
+    print("  4. Test image: Agent_A/tests/images/drone_testing1.jpg")
     
     print("\nOutputs saved to:")
     paths = TestPerceptionEngine.get_paths()

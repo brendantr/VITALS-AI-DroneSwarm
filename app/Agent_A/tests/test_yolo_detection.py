@@ -38,9 +38,8 @@ def test_basic_detection():
     print("="*80 + "\n")
     
     # Get paths
-    app_dir = agent_a_dir.parent
-    model_path = app_dir / "ComputerVision" / "CVModels" / "rf3v1.pt"
-    image_path = app_dir / "ComputerVision" / "temp" / "drone_testing1.jpg"
+    model_path = agent_a_dir / "PerceptionProcessing" / "yolo_models" / "rf3v1.pt"
+    image_path = agent_a_dir / "tests" / "images" / "drone_testing1.jpg"
     
     print(f"Model path: {model_path}")
     print(f"Model exists: {model_path.exists()}")
@@ -84,7 +83,7 @@ def test_basic_detection():
                   f"{det.bbox_normalized[2]:.3f}, {det.bbox_normalized[3]:.3f})")
     
     # Save annotated image
-    output_dir = agent_a_dir / "output"
+    output_dir = agent_a_dir / "tests" / "output"
     output_dir.mkdir(exist_ok=True)
     output_path = output_dir / "test_annotated.jpg"
     
@@ -100,9 +99,8 @@ def test_to_dict():
     print("  TEST: to_dict() Method")
     print("="*80 + "\n")
     
-    app_dir = agent_a_dir.parent
-    model_path = app_dir / "ComputerVision" / "CVModels" / "rf3v1.pt"
-    image_path = app_dir / "ComputerVision" / "temp" / "drone_testing1.jpg"
+    model_path = agent_a_dir / "PerceptionProcessing" / "yolo_models" / "rf3v1.pt"
+    image_path = agent_a_dir / "tests" / "images" / "drone_testing1.jpg"
     
     detector = YoloDetector(
         model_path=str(model_path),
@@ -131,9 +129,8 @@ def test_enrichment():
     print("  TEST: Detection Enrichment")
     print("="*80 + "\n")
     
-    app_dir = agent_a_dir.parent
-    model_path = app_dir / "ComputerVision" / "CVModels" / "rf3v1.pt"
-    image_path = app_dir / "ComputerVision" / "temp" / "drone_testing1.jpg"
+    model_path = agent_a_dir / "PerceptionProcessing" / "yolo_models" / "rf3v1.pt"
+    image_path = agent_a_dir / "tests" / "images" / "drone_testing1.jpg"
     
     detector = YoloDetector(
         model_path=str(model_path),
@@ -179,7 +176,7 @@ if __name__ == "__main__":
         print("\n" + "="*80)
         print("  ALL TESTS COMPLETE ✓")
         print("="*80)
-        print(f"\nOutputs saved to: {agent_a_dir / 'output'}")
+        print(f"\nOutputs saved to: {agent_a_dir / 'tests' / 'output'}")
         
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
