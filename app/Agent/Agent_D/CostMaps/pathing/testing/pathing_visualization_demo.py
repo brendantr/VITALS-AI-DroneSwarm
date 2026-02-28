@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime
 import math
 from pathlib import Path
 import random
 import sys
 
 import matplotlib.pyplot as plt
+from matplotlib.animation import PillowWriter
 from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon as MplPolygon
 from matplotlib.patches import Circle
@@ -27,12 +29,14 @@ from shapely.ops import unary_union
 try:
     from ...pathing.path import search_grid_with_drones
     from ...pathing_CostMap import PathingCostMap
+    from ...terrain_CostMap import TerrainCostMapRegistry
 except ImportError:  # Script execution fallback.
     AGENT_D_DIR = Path(__file__).resolve().parents[3]
     if str(AGENT_D_DIR) not in sys.path:
         sys.path.insert(0, str(AGENT_D_DIR))
     from CostMaps.pathing.path import search_grid_with_drones  # noqa: E402
     from CostMaps.pathing_CostMap import PathingCostMap  # noqa: E402
+    from CostMaps.terrain_CostMap import TerrainCostMapRegistry  # noqa: E402
 
 
 @dataclass
@@ -813,6 +817,40 @@ def _cells_to_assignments(grid: list[list[DemoTile]], cell_paths: dict[int, list
     return out
 
 
+def _count_searchable_cells_by_kind(grid: list[list[DemoTile]]) -> dict[str, int]:
+    counts = {"building": 0, "water": 0, "road": 0}
+    for row in grid:
+        for tile in row:
+            contains_count = getattr(tile, "contains_count", {}) or {}
+            if contains_count.get("building", 0) > 0:
+                counts["building"] += 1
+            if contains_count.get("water", 0) > 0:
+                counts["water"] += 1
+            if contains_count.get("highway", 0) > 0:
+                counts["road"] += 1
+    return counts
+
+
+def _tile_item_key(tile: DemoTile) -> str:
+    """Stable item identity for no-handoff of partially searched items."""
+    contains = getattr(tile, "contains", {}) or {}
+    if isinstance(contains, dict):
+        buildings = contains.get("building", [])
+        if buildings:
+            return f"building:{str(buildings[0])}"
+        waters = contains.get("water", [])
+        if waters:
+            return f"water:{str(waters[0])}"
+        highways = contains.get("highway", [])
+        if highways:
+            return f"highway:{str(highways[0])}"
+    return "none"
+
+
+def _cell_item_key(grid: list[list[DemoTile]], cell: tuple[int, int]) -> str:
+    return _tile_item_key(grid[cell[0]][cell[1]])
+
+
 def _order_cells_by_nearest(cells: list[tuple[int, int]], start: tuple[int, int]) -> list[tuple[int, int]]:
     if not cells:
         return []
@@ -887,8 +925,18 @@ def run_interactive_demo() -> None:
     # Layer 3: +D, -D
     ax_add_drone = fig.add_axes([0.83, 0.131, 0.03, 0.045])
     ax_remove_drone = fig.add_axes([0.88, 0.131, 0.03, 0.045])
+    # Layer 4: +B, +W, +R (inject new items)
+    fig.text(0.81, 0.124, "+B", ha="center", va="bottom", fontsize=9)
+    fig.text(0.85, 0.124, "+W", ha="center", va="bottom", fontsize=9)
+    fig.text(0.89, 0.124, "+R", ha="center", va="bottom", fontsize=9)
+    ax_add_building = fig.add_axes([0.795, 0.071, 0.03, 0.045])
+    ax_add_water = fig.add_axes([0.835, 0.071, 0.03, 0.045])
+    ax_add_road = fig.add_axes([0.875, 0.071, 0.03, 0.045])
+    # Layer 5: Export GIF
+    fig.text(0.945, 0.124, "Export GIF", ha="center", va="bottom", fontsize=9)
+    ax_export_gif = fig.add_axes([0.915, 0.071, 0.06, 0.045])
     # Auto-scale option below all layers.
-    ax_auto = fig.add_axes([0.80, 0.035, 0.17, 0.075])
+    ax_auto = fig.add_axes([0.80, 0.005, 0.17, 0.055])
 
     apply_button = Button(ax_apply, "")
     reset_button = Button(ax_reset, "")
@@ -897,6 +945,10 @@ def run_interactive_demo() -> None:
     play_button = Button(ax_play, "")
     add_drone_button = Button(ax_add_drone, "")
     remove_drone_button = Button(ax_remove_drone, "")
+    add_building_button = Button(ax_add_building, "")
+    add_water_button = Button(ax_add_water, "")
+    add_road_button = Button(ax_add_road, "")
+    export_gif_button = Button(ax_export_gif, "")
     auto_scale_toggle = CheckButtons(ax_auto, ["Auto-scale grid"], [True])
 
     controls: dict[str, NumericControl] = {}
@@ -914,6 +966,9 @@ def run_interactive_demo() -> None:
         "last_drone_count": None,
         "sim_drone_delta_request": 0,
         "sim_paused": False,
+        "terrain_tile_id": "demo_terrain_tile_0",
+        "terrain_cost_registry": TerrainCostMapRegistry(terrain_id="demo_terrain_0", t_tree=None),
+        "sim_item_add_requests": {"building": 0, "water": 0, "road": 0},
     }
     pending_deltas = {"building_delta": 0, "water_delta": 0, "road_delta": 0}
 
@@ -991,6 +1046,69 @@ def run_interactive_demo() -> None:
         pending_deltas["road_delta"] = int(round(s_road_delta.val))
         _set_status("Delta values changed. Press Apply to update simulation.")
 
+    def _update_delta_sliders() -> None:
+        s_building_delta.set_val(int(pending_deltas["building_delta"]))
+        s_water_delta.set_val(int(pending_deltas["water_delta"]))
+        s_road_delta.set_val(int(pending_deltas["road_delta"]))
+
+    def _current_grid_params() -> tuple[int, int]:
+        drones = controls["drones"].value
+        feature_level = controls["feature_level"].value
+        if state["auto_scale"]:
+            grid_size, _ = _auto_scale_config(drones)
+        else:
+            grid_size = controls["grid_size"].value
+        return int(grid_size), int(feature_level)
+
+    def _build_grid_from_pending() -> tuple[list[list[DemoTile]], list[MockFeature], BaseStation]:
+        grid_size, feature_level = _current_grid_params()
+        return _create_demo_grid(
+            size=grid_size,
+            feature_level=feature_level,
+            extra_buildings_delta=int(pending_deltas["building_delta"]),
+            extra_water_delta=int(pending_deltas["water_delta"]),
+            extra_roads_delta=int(pending_deltas["road_delta"]),
+        )
+
+    def _queue_or_apply_item_addition(item_kind: str) -> None:
+        if item_kind not in ("building", "water", "road"):
+            return
+        delta_key = f"{item_kind}_delta"
+        if state["simulate_running"]:
+            state["sim_item_add_requests"][item_kind] = int(state["sim_item_add_requests"].get(item_kind, 0)) + 1
+            _set_status(f"Queued +1 {item_kind} item for live remap.")
+            return
+
+        previous_grid = state.get("current_grid")
+        if previous_grid is None:
+            _render()
+            previous_grid = state.get("current_grid")
+        if previous_grid is None:
+            _set_status("Unable to add item right now. Please try again.")
+            return
+
+        old_counts = _count_searchable_cells_by_kind(previous_grid)
+        pending_deltas[delta_key] = int(pending_deltas.get(delta_key, 0)) + 1
+        candidate_grid, _candidate_features, _candidate_base = _build_grid_from_pending()
+        new_counts = _count_searchable_cells_by_kind(candidate_grid)
+
+        if new_counts[item_kind] <= old_counts[item_kind]:
+            pending_deltas[delta_key] = int(pending_deltas.get(delta_key, 0)) - 1
+            _update_delta_sliders()
+            _set_status(f"No valid space to add {item_kind}. Please reset terrain.")
+            return
+
+        _update_delta_sliders()
+        state["terrain_cost_registry"].add_dynamic_item(
+            tile_id=state["terrain_tile_id"],
+            item_kind=item_kind,
+            metadata={"count": 1, "source": "manual_control"},
+            t_tree_node_id=state["terrain_tile_id"],
+            osm_tile=None,
+        )
+        _set_status(f"Added +1 {item_kind} item and remapped.")
+        _render()
+
     def _build_sequences(assignments: dict[int, list], base: BaseStation) -> dict[int, list[tuple[float, float]]]:
         sequences: dict[int, list[tuple[float, float]]] = {}
         for drone_id, points in assignments.items():
@@ -1044,9 +1162,19 @@ def run_interactive_demo() -> None:
             drone_starts = [(base.row, base.col) for _ in range(drones)]
             assignments = search_grid_with_drones(grid, drone_positions=drone_starts, num_drones=drones)
 
-        cost_map = PathingCostMap.from_assignments(assignments)
+        cost_map = PathingCostMap.from_assignments(
+            assignments,
+            terrain_tile_id=state["terrain_tile_id"],
+            source="interactive_apply",
+        )
         state["current_cost_map"] = cost_map
         state["cost_map_history"].append(cost_map.clone())
+        state["terrain_cost_registry"].add_pathing_cost_map(
+            tile_id=state["terrain_tile_id"],
+            cost_map=cost_map,
+            t_tree_node_id=state["terrain_tile_id"],
+            osm_tile=None,
+        )
         state["current_grid"] = grid
         state["current_features"] = features
         state["current_base"] = base
@@ -1099,9 +1227,19 @@ def run_interactive_demo() -> None:
     def _sync_assignments_and_cost_map_from_cells(grid, sim_cell_paths: dict[int, list[tuple[int, int]]]) -> None:
         assignments = _cells_to_assignments(grid, sim_cell_paths)
         state["current_assignments"] = assignments
-        cost_map = PathingCostMap.from_assignments(assignments)
+        cost_map = PathingCostMap.from_assignments(
+            assignments,
+            terrain_tile_id=state["terrain_tile_id"],
+            source="interactive_remap",
+        )
         state["current_cost_map"] = cost_map
         state["cost_map_history"].append(cost_map.clone())
+        state["terrain_cost_registry"].add_pathing_cost_map(
+            tile_id=state["terrain_tile_id"],
+            cost_map=cost_map,
+            t_tree_node_id=state["terrain_tile_id"],
+            osm_tile=None,
+        )
 
     def _replan_simulation_for_drone_count(
         grid: list[list[DemoTile]],
@@ -1117,7 +1255,9 @@ def run_interactive_demo() -> None:
 
         base_cell = (base.row, base.col)
         completed_by_drone: dict[int, list[tuple[int, int]]] = {}
+        locked_remaining_by_drone: dict[int, list[tuple[int, int]]] = {}
         remaining_cells: list[tuple[int, int]] = []
+        next_ids = list(range(target))
 
         for drone_id in current_ids:
             path = list(sim_cell_paths.get(drone_id, []))
@@ -1125,12 +1265,21 @@ def run_interactive_demo() -> None:
             completed = path[:progress]
             remaining = path[progress:]
             completed_by_drone[drone_id] = completed
-            remaining_cells.extend(remaining)
+            if drone_id in next_ids:
+                locked_remaining_by_drone.setdefault(drone_id, [])
+
+            touched_keys = {_cell_item_key(grid, cell) for cell in completed}
+            for cell in remaining:
+                item_key = _cell_item_key(grid, cell)
+                # Do not hand off partially searched objects to newly added drones.
+                if drone_id in next_ids and item_key != "none" and item_key in touched_keys:
+                    locked_remaining_by_drone[drone_id].append(cell)
+                else:
+                    remaining_cells.append(cell)
 
         unique_remaining = list(dict.fromkeys(remaining_cells))
-        new_ids = list(range(target))
         starts = []
-        for drone_id in new_ids:
+        for drone_id in next_ids:
             completed = completed_by_drone.get(drone_id, [])
             if completed:
                 starts.append(completed[-1])
@@ -1146,14 +1295,84 @@ def run_interactive_demo() -> None:
             )
             replanned_cells = _assignments_to_cells(replanned)
         else:
-            replanned_cells = {drone_id: [] for drone_id in new_ids}
+            replanned_cells = {drone_id: [] for drone_id in next_ids}
 
         next_paths: dict[int, list[tuple[int, int]]] = {}
         next_progress: dict[int, int] = {}
-        for drone_id in new_ids:
+        for drone_id in next_ids:
             completed = completed_by_drone.get(drone_id, [])
+            locked_remainder = locked_remaining_by_drone.get(drone_id, [])
             remainder = replanned_cells.get(drone_id, [])
-            next_paths[drone_id] = completed + remainder
+            next_paths[drone_id] = completed + locked_remainder + remainder
+            next_progress[drone_id] = len(completed)
+        return next_paths, next_progress
+
+    def _replan_simulation_for_item_injection(
+        old_grid: list[list[DemoTile]],
+        new_grid: list[list[DemoTile]],
+        base: BaseStation,
+        sim_cell_paths: dict[int, list[tuple[int, int]]],
+        sim_progress: dict[int, int],
+        active_count: int,
+    ) -> tuple[dict[int, list[tuple[int, int]]], dict[int, int]]:
+        base_cell = (base.row, base.col)
+        next_ids = list(range(active_count))
+        completed_by_drone: dict[int, list[tuple[int, int]]] = {}
+        locked_remaining_by_drone: dict[int, list[tuple[int, int]]] = {drone_id: [] for drone_id in next_ids}
+
+        def _in_bounds(grid_ref: list[list[DemoTile]], cell: tuple[int, int]) -> bool:
+            return 0 <= cell[0] < len(grid_ref) and 0 <= cell[1] < len(grid_ref[0])
+
+        visited_cells = set()
+        locked_cells = set()
+        for drone_id in next_ids:
+            path = list(sim_cell_paths.get(drone_id, []))
+            progress = max(0, min(int(sim_progress.get(drone_id, 0)), len(path)))
+            completed = [cell for cell in path[:progress] if _in_bounds(new_grid, cell)]
+            remaining = [cell for cell in path[progress:] if _in_bounds(new_grid, cell)]
+            completed_by_drone[drone_id] = completed
+            visited_cells.update(completed)
+
+            touched_keys = {_cell_item_key(old_grid, cell) for cell in path[:progress] if _in_bounds(old_grid, cell)}
+            for cell in remaining:
+                old_key = _cell_item_key(old_grid, cell) if _in_bounds(old_grid, cell) else "none"
+                new_key = _cell_item_key(new_grid, cell)
+                item_key = new_key if new_key != "none" else old_key
+                if item_key != "none" and item_key in touched_keys:
+                    locked_remaining_by_drone[drone_id].append(cell)
+                    locked_cells.add(cell)
+
+        all_viable = []
+        for r in range(len(new_grid)):
+            for c in range(len(new_grid[0])):
+                cell = new_grid[r][c]
+                if cell.in_searcharea and cell.total_count > 0:
+                    all_viable.append((r, c))
+
+        free_pool = [cell for cell in all_viable if cell not in visited_cells and cell not in locked_cells]
+        starts = []
+        for drone_id in next_ids:
+            completed = completed_by_drone.get(drone_id, [])
+            starts.append(completed[-1] if completed else base_cell)
+
+        if free_pool:
+            replanned = search_grid_with_drones(
+                new_grid,
+                drone_positions=starts,
+                viable_grid_positions=free_pool,
+                num_drones=active_count,
+            )
+            replanned_cells = _assignments_to_cells(replanned)
+        else:
+            replanned_cells = {drone_id: [] for drone_id in next_ids}
+
+        next_paths: dict[int, list[tuple[int, int]]] = {}
+        next_progress: dict[int, int] = {}
+        for drone_id in next_ids:
+            completed = completed_by_drone.get(drone_id, [])
+            locked = locked_remaining_by_drone.get(drone_id, [])
+            replanned_remaining = replanned_cells.get(drone_id, [])
+            next_paths[drone_id] = completed + locked + replanned_remaining
             next_progress[drone_id] = len(completed)
         return next_paths, next_progress
 
@@ -1176,11 +1395,16 @@ def run_interactive_demo() -> None:
         cell_size_m = controls["cell_size_m"].value
         sim_cell_paths = _assignments_to_cells(assignments)
         sim_progress = {drone_id: 0 for drone_id in sim_cell_paths}
+        sim_leg_phase = {drone_id: 0.0 for drone_id in sim_cell_paths}
         active_ids = sorted(sim_cell_paths)
+        transit_leg_phase_step = 0.16  # keep baseline speed between searchable items
+        in_item_leg_phase_step = 0.34  # speed up while moving over the same searchable item
+        frame_sleep_s = 0.05
         drone_colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown", "tab:pink", "tab:gray", "tab:olive", "tab:cyan"]
         draw_limit = 60
         line_artists = {}
         marker_artists = {}
+        assignment_artists = {}
         base_cell = (base.row, base.col)
 
         def _cell_to_xy(cell: tuple[int, int]) -> tuple[float, float]:
@@ -1189,9 +1413,22 @@ def run_interactive_demo() -> None:
         def _current_xy(drone_id: int) -> tuple[float, float]:
             progress = sim_progress.get(drone_id, 0)
             path = sim_cell_paths.get(drone_id, [])
-            if progress <= 0 or not path:
+            if not path:
                 return base.x, base.y
-            return _cell_to_xy(path[min(progress - 1, len(path) - 1)])
+            if progress >= len(path):
+                # Optional return-to-base glide once all search cells are visited.
+                last_x, last_y = _cell_to_xy(path[-1])
+                phase = max(0.0, min(1.0, float(sim_leg_phase.get(drone_id, 0.0))))
+                cx = last_x + (base.x - last_x) * phase
+                cy = last_y + (base.y - last_y) * phase
+                return cx, cy
+
+            start_x, start_y = (base.x, base.y) if progress <= 0 else _cell_to_xy(path[progress - 1])
+            end_x, end_y = _cell_to_xy(path[progress])
+            phase = max(0.0, min(1.0, float(sim_leg_phase.get(drone_id, 0.0))))
+            cx = start_x + (end_x - start_x) * phase
+            cy = start_y + (end_y - start_y) * phase
+            return cx, cy
 
         def _trail_xy(drone_id: int) -> tuple[list[float], list[float]]:
             progress = sim_progress.get(drone_id, 0)
@@ -1203,9 +1440,9 @@ def run_interactive_demo() -> None:
                 px, py = _cell_to_xy(cell)
                 xs.append(px)
                 ys.append(py)
-            if progress >= len(path):
-                xs.append(base.x)
-                ys.append(base.y)
+            cx, cy = _current_xy(drone_id)
+            xs.append(cx)
+            ys.append(cy)
             return xs, ys
 
         def _rebuild_artists() -> None:
@@ -1224,6 +1461,53 @@ def run_interactive_demo() -> None:
                 marker = ax_map.scatter([cx], [cy], marker="o", color=color, s=70, edgecolor="white", linewidths=1.0, zorder=17)
                 line_artists[drone_id] = line
                 marker_artists[drone_id] = marker
+
+        def _assignment_xy_by_status(drone_id: int) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+            path = sim_cell_paths.get(drone_id, [])
+            progress = max(0, min(int(sim_progress.get(drone_id, 0)), len(path)))
+            visited = path[:progress]
+            pending = path[progress:]
+            visited_xy = [(float(c) + 0.5, float(r) + 0.5) for (r, c) in visited]
+            pending_xy = [(float(c) + 0.5, float(r) + 0.5) for (r, c) in pending]
+            return visited_xy, pending_xy
+
+        def _rebuild_assignment_markers() -> None:
+            for artist in assignment_artists.values():
+                if isinstance(artist, tuple):
+                    artist[0].remove()
+                    artist[1].remove()
+                else:
+                    artist.remove()
+            assignment_artists.clear()
+            for idx, drone_id in enumerate(active_ids):
+                if idx >= draw_limit:
+                    break
+                visited_xy, pending_xy = _assignment_xy_by_status(drone_id)
+                if not visited_xy and not pending_xy:
+                    continue
+                color = drone_colors[drone_id % len(drone_colors)]
+                visited_marker = ax_map.scatter(
+                    [xy[0] for xy in visited_xy],
+                    [xy[1] for xy in visited_xy],
+                    marker="s",
+                    color=color,
+                    s=72,
+                    edgecolors="black",
+                    linewidths=0.25,
+                    alpha=0.58,
+                    zorder=13.5,
+                )
+                pending_marker = ax_map.scatter(
+                    [xy[0] for xy in pending_xy],
+                    [xy[1] for xy in pending_xy],
+                    marker="s",
+                    color=color,
+                    s=72,
+                    edgecolors="none",
+                    alpha=0.22,
+                    zorder=12.5,
+                )
+                assignment_artists[drone_id] = (visited_marker, pending_marker)
 
         def _refresh_artists() -> None:
             for drone_id in list(line_artists):
@@ -1248,14 +1532,102 @@ def run_interactive_demo() -> None:
                 cx, cy = _current_xy(drone_id)
                 marker_artists[drone_id].set_offsets([(cx, cy)])
 
+                if drone_id not in assignment_artists:
+                    color = drone_colors[drone_id % len(drone_colors)]
+                    visited_marker = ax_map.scatter([], [], marker="s", color=color, s=72, edgecolors="black", linewidths=0.25, alpha=0.58, zorder=13.5)
+                    pending_marker = ax_map.scatter([], [], marker="s", color=color, s=72, edgecolors="none", alpha=0.22, zorder=12.5)
+                    assignment_artists[drone_id] = (visited_marker, pending_marker)
+
+                visited_xy, pending_xy = _assignment_xy_by_status(drone_id)
+                visited_marker, pending_marker = assignment_artists[drone_id]
+                visited_marker.set_offsets(visited_xy if visited_xy else [(math.nan, math.nan)])
+                pending_marker.set_offsets(pending_xy if pending_xy else [(math.nan, math.nan)])
+
             fig.canvas.draw_idle()
 
         _rebuild_artists()
+        _rebuild_assignment_markers()
 
         while state["simulate_running"]:
             if state.get("sim_paused", False):
                 plt.pause(0.06)
                 continue
+
+            item_requests = state.get("sim_item_add_requests", {})
+            total_item_adds = int(item_requests.get("building", 0)) + int(item_requests.get("water", 0)) + int(item_requests.get("road", 0))
+            if total_item_adds > 0:
+                state["sim_item_add_requests"] = {"building": 0, "water": 0, "road": 0}
+                old_grid = grid
+                old_paths = dict(sim_cell_paths)
+                old_progress = dict(sim_progress)
+
+                applied = {"building": 0, "water": 0, "road": 0}
+                rejected = {"building": 0, "water": 0, "road": 0}
+                grid_size = controls["grid_size"].value if not state["auto_scale"] else len(grid)
+                feature_level = controls["feature_level"].value
+                candidate_grid = grid
+                candidate_features = features
+                candidate_base = base
+                kind_to_delta = {"building": "building_delta", "water": "water_delta", "road": "road_delta"}
+                kind_to_count_key = {"building": "building", "water": "water", "road": "road"}
+
+                for item_kind in ("building", "water", "road"):
+                    steps = int(item_requests.get(item_kind, 0))
+                    for _ in range(steps):
+                        old_counts = _count_searchable_cells_by_kind(candidate_grid)
+                        delta_key = kind_to_delta[item_kind]
+                        pending_deltas[delta_key] = int(pending_deltas[delta_key]) + 1
+                        test_grid, test_features, test_base = _create_demo_grid(
+                            size=int(grid_size),
+                            feature_level=int(feature_level),
+                            extra_buildings_delta=int(pending_deltas["building_delta"]),
+                            extra_water_delta=int(pending_deltas["water_delta"]),
+                            extra_roads_delta=int(pending_deltas["road_delta"]),
+                        )
+                        new_counts = _count_searchable_cells_by_kind(test_grid)
+                        count_key = kind_to_count_key[item_kind]
+                        if new_counts[count_key] <= old_counts[count_key]:
+                            pending_deltas[delta_key] = int(pending_deltas[delta_key]) - 1
+                            rejected[item_kind] += 1
+                            continue
+                        applied[item_kind] += 1
+                        candidate_grid = test_grid
+                        candidate_features = test_features
+                        candidate_base = test_base
+                        state["terrain_cost_registry"].add_dynamic_item(
+                            tile_id=state["terrain_tile_id"],
+                            item_kind=item_kind,
+                            metadata={"count": 1, "source": "live_sim_injection"},
+                            t_tree_node_id=state["terrain_tile_id"],
+                            osm_tile=None,
+                        )
+
+                _update_delta_sliders()
+                grid = candidate_grid
+                features = candidate_features
+                base = candidate_base
+                state["current_grid"] = grid
+                state["current_features"] = features
+                state["current_base"] = base
+                sim_cell_paths, sim_progress = _replan_simulation_for_item_injection(
+                    old_grid=old_grid,
+                    new_grid=grid,
+                    base=base,
+                    sim_cell_paths=old_paths,
+                    sim_progress=old_progress,
+                    active_count=len(active_ids),
+                )
+                sim_leg_phase = {drone_id: 0.0 for drone_id in sim_cell_paths}
+                active_ids = sorted(sim_cell_paths)
+                _sync_assignments_and_cost_map_from_cells(grid, sim_cell_paths)
+                _rebuild_artists()
+                _rebuild_assignment_markers()
+                total_applied = sum(applied.values())
+                total_rejected = sum(rejected.values())
+                if total_rejected > 0:
+                    _set_status("Some items could not be placed with 1-cell spacing. Please reset terrain.")
+                elif total_applied > 0:
+                    _set_status("Live item injection complete. Paths remapped with new terrain items.")
 
             requested_delta = int(state.get("sim_drone_delta_request", 0))
             if requested_delta != 0:
@@ -1268,26 +1640,48 @@ def run_interactive_demo() -> None:
                     sim_progress=sim_progress,
                     target_count=target,
                 )
+                sim_leg_phase = {drone_id: 0.0 for drone_id in sim_cell_paths}
                 active_ids = sorted(sim_cell_paths)
                 _set_control_value("drones", len(active_ids), render=False)
                 state["last_drone_count"] = len(active_ids)
                 _sync_assignments_and_cost_map_from_cells(grid, sim_cell_paths)
                 _rebuild_artists()
+                _rebuild_assignment_markers()
                 _set_status(f"Live remap complete. Active drones: {len(active_ids)}")
 
             step_progress = False
             for drone_id in active_ids:
-                if sim_progress[drone_id] < len(sim_cell_paths[drone_id]):
-                    sim_progress[drone_id] += 1
+                path_len = len(sim_cell_paths[drone_id])
+                if path_len == 0:
+                    continue
+
+                if sim_progress[drone_id] < path_len:
+                    progress = sim_progress[drone_id]
+                    path = sim_cell_paths[drone_id]
+                    start_cell = path[progress - 1] if progress > 0 else None
+                    end_cell = path[progress]
+                    start_key = _cell_item_key(grid, start_cell) if start_cell is not None else "none"
+                    end_key = _cell_item_key(grid, end_cell)
+                    phase_step = in_item_leg_phase_step if (end_key != "none" and start_key == end_key) else transit_leg_phase_step
+                    sim_leg_phase[drone_id] = min(1.0, sim_leg_phase.get(drone_id, 0.0) + phase_step)
+                    if sim_leg_phase[drone_id] >= 1.0:
+                        sim_progress[drone_id] += 1
+                        sim_leg_phase[drone_id] = 0.0
+                    step_progress = True
+                elif sim_leg_phase.get(drone_id, 0.0) < 1.0:
+                    # Return leg from final cell back to base.
+                    sim_leg_phase[drone_id] = min(1.0, sim_leg_phase.get(drone_id, 0.0) + transit_leg_phase_step)
                     step_progress = True
             _refresh_artists()
             if not step_progress:
                 break
-            plt.pause(0.06)
+            plt.pause(frame_sleep_s)
 
         for artist in list(line_artists.values()):
             artist.remove()
         for artist in list(marker_artists.values()):
+            artist.remove()
+        for artist in list(assignment_artists.values()):
             artist.remove()
         state["simulate_running"] = False
         state["sim_paused"] = False
@@ -1317,6 +1711,57 @@ def run_interactive_demo() -> None:
         state["sim_paused"] = False
         _set_status("Simulation resumed.")
 
+    def _export_simulation_gif(_event):
+        assignments = state["current_assignments"]
+        base = state["current_base"]
+        grid = state["current_grid"]
+        features = state["current_features"]
+        if not assignments or base is None or grid is None or features is None:
+            _set_status("No simulation available to export. Click Apply first.")
+            return
+
+        export_fig, export_ax = plt.subplots(figsize=(10, 10))
+        cell_size_m = controls["cell_size_m"].value
+        _draw_interactive_scene(
+            export_ax,
+            grid=grid,
+            features=features,
+            base=base,
+            assignments={},
+            cell_size_m=cell_size_m,
+        )
+
+        sequences = _build_sequences(assignments, base)
+        drone_colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown", "tab:pink", "tab:gray", "tab:olive", "tab:cyan"]
+        draw_limit = 60
+        line_artists = {}
+        marker_artists = {}
+        ordered_ids = sorted(sequences)[:draw_limit]
+        for drone_id in ordered_ids:
+            color = drone_colors[drone_id % len(drone_colors)]
+            (line,) = export_ax.plot([], [], "-", color=color, lw=2.2, zorder=16)
+            marker = export_ax.scatter([base.x], [base.y], marker="o", color=color, s=70, edgecolor="white", linewidths=1.0, zorder=17)
+            line_artists[drone_id] = line
+            marker_artists[drone_id] = marker
+
+        frame_count = max((len(seq) for seq in sequences.values()), default=0)
+        out_path = Path(__file__).resolve().parent / f"pathing_simulation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.gif"
+        writer = PillowWriter(fps=12)
+        with writer.saving(export_fig, str(out_path), dpi=120):
+            for frame in range(frame_count):
+                for drone_id in ordered_ids:
+                    seq = sequences[drone_id]
+                    point_index = min(frame, len(seq) - 1)
+                    trail = seq[: point_index + 1]
+                    xs = [p[0] for p in trail]
+                    ys = [p[1] for p in trail]
+                    line_artists[drone_id].set_data(xs, ys)
+                    marker_artists[drone_id].set_offsets([seq[point_index]])
+                writer.grab_frame()
+
+        plt.close(export_fig)
+        _set_status(f"GIF exported: {out_path}")
+
     def _add_drone_live(_event):
         if state["simulate_running"]:
             state["sim_drone_delta_request"] = int(state.get("sim_drone_delta_request", 0)) + 1
@@ -1338,6 +1783,15 @@ def run_interactive_demo() -> None:
             return
         _increment_control("drones", -1)
 
+    def _add_building_item(_event):
+        _queue_or_apply_item_addition("building")
+
+    def _add_water_item(_event):
+        _queue_or_apply_item_addition("water")
+
+    def _add_road_item(_event):
+        _queue_or_apply_item_addition("road")
+
     def _toggle_auto(_label):
         state["auto_scale"] = bool(auto_scale_toggle.get_status()[0])
         _set_status("Auto-scale toggled. Press Apply to update simulation.")
@@ -1355,10 +1809,12 @@ def run_interactive_demo() -> None:
         state["current_assignments"] = None
         state["current_cost_map"] = PathingCostMap()
         state["cost_map_history"] = []
+        state["terrain_cost_registry"] = TerrainCostMapRegistry(terrain_id="demo_terrain_0", t_tree=None)
         state["last_signature"] = None
         state["last_drone_count"] = None
         state["sim_drone_delta_request"] = 0
         state["sim_paused"] = False
+        state["sim_item_add_requests"] = {"building": 0, "water": 0, "road": 0}
         if not auto_scale_toggle.get_status()[0]:
             auto_scale_toggle.set_active(0)
         _set_status("Controls reset to defaults.")
@@ -1393,6 +1849,10 @@ def run_interactive_demo() -> None:
     play_button.on_clicked(_play_simulation)
     add_drone_button.on_clicked(_add_drone_live)
     remove_drone_button.on_clicked(_remove_drone_live)
+    add_building_button.on_clicked(_add_building_item)
+    add_water_button.on_clicked(_add_water_item)
+    add_road_button.on_clicked(_add_road_item)
+    export_gif_button.on_clicked(_export_simulation_gif)
     auto_scale_toggle.on_clicked(_toggle_auto)
 
     _render()
