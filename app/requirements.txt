@@ -1,4 +1,6 @@
 pymavlink
+pyserial
+mavproxy
 ollama
 tkintermapview
 customtkinter
