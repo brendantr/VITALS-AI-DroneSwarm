@@ -62,6 +62,7 @@ class GUI:
         self.missionState = missionState
 
     def call_mavlink_connection(self):
+        self.has_centered_on_drone = False
         success = self.missionState.connect_to_mavlink()
         if success:
             print("Connected to Mavlink successfully.")
@@ -83,6 +84,10 @@ class GUI:
             lat = lat / 1e7
             lon = lon / 1e7
 
+        # Ignore invalid coordinates
+        if abs(lat) > 90 or abs(lon) > 180:
+            return
+
         drone = next((drone for drone in self.map_page.drones if drone.id == drone_id), None)
         if drone is not None:
             drone.setPosition(lat, lon, altitude, relative_altitude, heading, vx, vy, vz)
@@ -103,7 +108,6 @@ class GUI:
             drone.setTelemetry(roll, pitch, yaw)
 
     def addDrone(self, drone_id, system_status):
-        print(f"DEBUG: Adding drone {drone_id} with status {system_status}")
         self.map_page._add_drone(drone_id, system_status)
 
     def updateDroneStatus(self, drone_id, system_status):

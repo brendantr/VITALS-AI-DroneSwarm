@@ -122,7 +122,8 @@ class Drone:
                             self.active_job_start_pos = self.position
                             self.id_of_job_with_path = active_job.job_id
                             trimmed_path.append(self.position)
-                            self.active_job_path.delete()
+                            if self.active_job_path is not None:
+                                self.active_job_path.delete()
                     else:
                         self.active_job_start_pos = self.position
                         self.id_of_job_with_path = active_job.job_id
@@ -135,7 +136,8 @@ class Drone:
                     if len(trimmed_path) > 1:
                         self.active_job_path = self.map_widget.set_path(position_list = trimmed_path, width=5, color=self.color)
             else:
-                self.active_job_path.delete()
+                if self.active_job_path is not None:
+                    self.active_job_path.delete()
                 self.active_job_path = None
                 self.active_job_start_pos = None
                 self.id_of_job_with_path = None

@@ -57,9 +57,12 @@ class Drone:
         self.vx = vx
         self.vy = vy
         self.vz = vz
-        if self.home_latitude is None:
+
+        has_valid_gps_fix = latitude not in (None, 0) and longitude not in (None, 0)
+        if self.home_latitude is None and has_valid_gps_fix:
             self.home_latitude = latitude
             self.home_longitude = longitude
+
         self.missionState.gui.updateDronePosition(self.drone_id, latitude, longitude, altitude, relative_altitude, heading, vx, vy, vz)
 
     def updateTelemetry(self, roll, pitch, yaw):
@@ -75,7 +78,7 @@ class Drone:
     def addJob(self, job):
         if self.jobQueue.is_empty() and self.active_job is None: 
             self.setActiveJob(job)
-        elif self.active_job is not None and (int(job.job_priority) - self.active_job.job_priority) > 3:
+        elif self.active_job is not None and (int(job.job_priority) - int(self.active_job.job_priority)) > 3:
             # if the new job has a higher priority than the active job, pause the active job
             self.setActiveJob(job)
         else:
@@ -269,6 +272,10 @@ class missionState:
 
     def updateDronePosition(self, drone_id, latitude, longitude, altitude, relative_altitude, heading, vx, vy, vz):
         drone = next((d for d in self.drones if d.drone_id == drone_id), None)
+        if drone is None:
+            self.addDrone(drone_id, 0)
+            drone = next((d for d in self.drones if d.drone_id == drone_id), None)
+
         if drone is not None:
             drone.updatePosition(latitude, longitude, altitude, relative_altitude, heading, vx, vy, vz)
             #check if drone is within 20 meters of the target detection points
@@ -338,7 +345,9 @@ class missionState:
         #pass the grid, current_drone_positions(In ID Order, long-lat pairs), and number of drones(If you don't pass the drone positions)
         drone_positions =  []
         for drone in self.drones:
-            drone_positions.append((drone.longitude/1e7, drone.latitude/1e7))
+            # Only add positions for drones with valid coordinates
+            if drone.longitude is not None and drone.latitude is not None:
+                drone_positions.append((drone.longitude/1e7, drone.latitude/1e7))
         self.drone_search_destinations = search_grid_with_drones(self.missionGrid,drone_positions,self.viable_grid_positions,4)
         pass
 
@@ -480,6 +489,13 @@ class missionState:
         if drone is not None:
             drone.setDroneUnavailable()
             self.dispatcher.return_to_launch(int(drone_id))
+    
+    def land_drone(self, drone_id):
+        """Land the drone immediately at current location."""
+        drone = next((d for d in self.drones if d.drone_id == int(drone_id)), None)
+        if drone is not None:
+            drone.setDroneUnavailable()
+            self.dispatcher.land_drone(int(drone_id))
     
     def end_mission(self):
         for drone in self.drones:

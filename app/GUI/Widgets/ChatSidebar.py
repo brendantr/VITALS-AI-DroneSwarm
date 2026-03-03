@@ -136,6 +136,21 @@ class ChatSidebar(customtkinter.CTkFrame):
             # Add user message bubble
             self.add_message_bubble(f"You: {user_message}", sender="user")
 
+            # Check for direct emergency commands
+            msg_lower = user_message.lower()
+            if msg_lower in ["land", "land now", "land all", "emergency land", "stop", "stop now"]:
+                drones = self.gui_ref.missionState.getDrones()
+                for drone in drones:
+                    self.gui_ref.missionState.land_drone(drone.drone_id)
+                self.add_message_bubble(f"Emergency: Landing all drones immediately!", sender="llm")
+                return
+            elif msg_lower in ["rtl", "return", "return to launch", "home"]:
+                drones = self.gui_ref.missionState.getDrones()
+                for drone in drones:
+                    self.gui_ref.missionState.call_drone_home(drone.drone_id)
+                self.add_message_bubble(f"Returning all drones to launch.", sender="llm")
+                return
+
             # Call the LLM with user input
             polygon_points = self.master.get_polygon_points()
             drones = self.gui_ref.missionState.getDrones()
@@ -148,6 +163,10 @@ class ChatSidebar(customtkinter.CTkFrame):
             def call_return_to_launch(drone_id):
                 self.gui_ref.missionState.call_drone_home(drone_id)
                 self.add_message_bubble(f"LLM: Sending drone {drone_id} to launch.", sender="llm")
+            
+            def call_land_drone(drone_id):
+                self.gui_ref.missionState.land_drone(drone_id)
+                self.add_message_bubble(f"LLM: Landing drone {drone_id} immediately.", sender="llm")
 
             def call_end_mission():
                 self.gui_ref.missionState.end_mission()
@@ -156,6 +175,7 @@ class ChatSidebar(customtkinter.CTkFrame):
             def on_complete(future):
                 available_tools = {'create_poi_investigate_job': call_create_poi_investigate_job,
                                    'call_return_to_launch': call_return_to_launch,
+                                   'call_land_drone': call_land_drone,
                                    'call_end_mission': call_end_mission
                                    }
                 response = future.result()

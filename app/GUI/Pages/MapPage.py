@@ -298,6 +298,10 @@ class MapPage(customtkinter.CTkFrame):
 
                 self.gui_ref.start_adding_detection_points()
                 self.gui_ref.create_system_chat_message("Mission Area has been defined and terrain has been processed. For the simulation, please add detection points to the map. When you are done, right click the map and select 'Finish Adding Detection Points'")
+            else:
+                # For real drone missions, enable start mission directly
+                self.gui_ref.create_system_chat_message("Mission Area has been defined. You can now start the mission.")
+                self.end_mission_button.configure(state="normal")
 
             print(self.polygon_points)
         else:
