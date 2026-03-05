@@ -65,18 +65,6 @@ jobs:
       run: |
         pytest -v ./app/Tests/
 
-    - name: Save Docker volumes to cache
-      if: always()
-      run: |
-        mkdir -p /tmp/docker-volumes
-        for vol in osm-data osm-tiles; do
-          echo "Saving ${vol} to cache..."
-          docker run --rm \
-            -v "terrainpreprocessing_${vol}:/volume" \
-            -v /tmp/docker-volumes:/backup \
-            alpine tar cf "/backup/${vol}.tar" -C /volume .
-        done
-
     - name: Stop and remove Docker Compose services
       if: always()
       working-directory: ./app/TerrainPreProcessing
