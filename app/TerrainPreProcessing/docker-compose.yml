@@ -11,12 +11,11 @@ services:
       THREADS: 24
       OSM2PGSQL_EXTRA_ARGS: "-C 24000"
       BACKGROUND_RENDERING: "true"
-      POSTGRES_USER: vitals
-      POSTGRES_PASSWORD: vitals123
+      POSTGRES_USER: renderer
+      POSTGRES_PASSWORD: renderer
     volumes:
       - osm-data:/data/database
       - osm-tiles:/data/tiles
-      - ~/Downloads/us-south-260211.osm.pbf:/data/region.osm.pbf
     shm_size: "8gb"
     command: run
 
