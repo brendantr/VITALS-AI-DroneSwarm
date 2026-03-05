@@ -1,6 +1,5 @@
 name: CI - Docker Compose Build & Test
 
-
 on:
   push:
   pull_request:
@@ -21,7 +20,7 @@ jobs:
       run: |
         docker version
         docker compose version
-        
+
     - name: Build Docker Compose services
       working-directory: ./app/TerrainPreProcessing
       run: |
