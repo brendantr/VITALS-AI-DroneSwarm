@@ -7,62 +7,54 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import TypeAdapter
 
-from agents_common.schema_validator import SchemaValidator
+from agent_c.core.models import ACPAck, ACPMessage
+from agent_c.utils.security import require_api_key
+from agent_c.utils.config import Settings
+from agent_c.storage.store import RunStore
+from agent_c.clients.agent_b import AgentBClient
+from agent_c.clients.trtllm import TRTLLMClient
+from agent_c.core.coordinator import Worker
+from agent_c.core.publisher_loop import OutboxPublisher
 
-from .b_client import AgentBClient, HttpAgentBClient
-from .config import Settings
-from .models import ACPAck, ACPMessage
-from .orchestrator import Orchestrator
-from .security import require_api_key
-from .store import RunStore
-
-app = FastAPI(title="Agent C (Coordinator)", version="0.1.0")
-
-settings = Settings()
-store = RunStore(settings.C_DB_PATH)
-b_client = HttpAgentBClient(
-    settings.B_BASE_URL,
-    timeout_s=settings.B_TIMEOUT_S,
-    schema_root=settings.SCHEMA_ROOT,
-    validate_responses=True,
+from .deps import (
+    get_settings,
+    get_schema_validator,
+    get_store,
+    get_agent_b,
+    get_worker,
+    get_outbox_publisher,
+    get_llm,
 )
 
-
-# Shared JSON Schema validation (same mechanism as Agent B)
-schema_validator = SchemaValidator(settings.SCHEMA_ROOT)
-acp_adapter = TypeAdapter(ACPMessage)
+app = FastAPI(title="Agent C (Coordinator/Planner)", version="0.2.0")
+adapter = TypeAdapter(ACPMessage)
 
 
-def get_settings() -> Settings:
-    return settings
+@app.on_event("startup")
+async def _startup():
+    await get_worker().start()
+    await get_outbox_publisher().start()
 
 
-def get_store() -> RunStore:
-    return store
-
-
-def get_b_client() -> AgentBClient:
-    return b_client
-
-
-def get_orchestrator(
-    st: RunStore = Depends(get_store),
-    b: AgentBClient = Depends(get_b_client),
-) -> Orchestrator:
-    # Construct per-request so dependency_overrides on get_b_client work in tests
-    return Orchestrator(st, b)
+@app.on_event("shutdown")
+async def _shutdown():
+    await get_outbox_publisher().stop()
+    await get_worker().stop()
 
 
 @app.get("/health")
-async def health(b: AgentBClient = Depends(get_b_client)):
+async def health():
+    return {"ok": True, "service": "agent_c", "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
+
+
+@app.get("/ready")
+async def ready(b: AgentBClient = Depends(get_agent_b), llm: TRTLLMClient = Depends(get_llm)):
     b_health = await b.health()
+    llm_ok = await llm.health()
     return {
-        "ok": True,
+        "ok": bool(b_health.ok) and bool(llm_ok),
         "service": "agent_c",
-        "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "downstream": {
-            "agent_b": {"ok": b_health.ok, "error": b_health.error, "data": b_health.data if b_health.ok else {}},
-        },
+        "downstream": {"agent_b": {"ok": b_health.ok, "error": b_health.error}, "trtllm": {"ok": llm_ok}},
     }
 
 
@@ -72,39 +64,27 @@ async def ingest_message(
     x_api_key: str | None = Header(default=None),
     s: Settings = Depends(get_settings),
     st: RunStore = Depends(get_store),
-    o: Orchestrator = Depends(get_orchestrator),
+    worker: Worker = Depends(get_worker),
+    validator=Depends(get_schema_validator),
 ):
     require_api_key(x_api_key, s.C_API_KEY)
 
-    # 1) Validate against shared JSON Schemas in ./schemas (ACP v0.2 only per policy)
     raw_errors = []
-    for err in schema_validator.iter_errors(msg):
-        # iter_errors may yield Exceptions if selection/registry fails
+    for err in validator.iter_errors(msg):
         if isinstance(err, Exception):
             raw_errors.append({"path": "/", "message": str(err)})
             continue
-
-        # jsonschema.ValidationError
         path = "/" + "/".join(str(p) for p in err.path) if getattr(err, "path", None) else "/"
         raw_errors.append({"path": path, "message": getattr(err, "message", str(err))})
-
     if raw_errors:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "schema": msg.get("schema", "unknown"),
-                "errors": raw_errors,
-            },
-        )
+        raise HTTPException(status_code=422, detail={"schema": msg.get("schema", "unknown"), "errors": raw_errors})
 
-    # 2) Parse into typed Pydantic model for downstream logic
-    parsed: ACPMessage = acp_adapter.validate_python(msg)
+    parsed: ACPMessage = adapter.validate_python(msg)
 
     corr_id = parsed.corr_id or str(uuid4())
     msg2 = parsed if parsed.corr_id == corr_id else parsed.model_copy(update={"corr_id": corr_id})
     md = msg2.model_dump()
 
-    # Ensure run exists; store intent payload if present
     intent_payload = md["payload"] if md["type"] == "ACP.Intent" else {}
     st.ensure_run(corr_id, intent=intent_payload, metadata={"created_by": md["source"]["component"]})
 
@@ -124,7 +104,7 @@ async def ingest_message(
         return JSONResponse(_make_ack(corr_id, md["event_id"], "accepted", "duplicate_ignored"), status_code=200)
 
     if md["type"] == "ACP.Intent":
-        await o.handle_intent(msg2)  # updates run state/context
+        await worker.enqueue_intent(msg2)  # type: ignore[arg-type]
         return _make_ack(corr_id, md["event_id"], "accepted", "intent_received")
 
     return _make_ack(corr_id, md["event_id"], "accepted", "message_received")
@@ -134,6 +114,14 @@ async def ingest_message(
 async def get_run(corr_id: str, st: RunStore = Depends(get_store)):
     try:
         return st.get_run(corr_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="run not found")
+
+
+@app.get("/runs/{corr_id}/events")
+async def get_events(corr_id: str, st: RunStore = Depends(get_store), limit: int = 200):
+    try:
+        return {"corr_id": corr_id, "events": st.list_events(corr_id, limit=limit)}
     except KeyError:
         raise HTTPException(status_code=404, detail="run not found")
 

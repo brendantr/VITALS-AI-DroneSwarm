@@ -1,0 +1,14 @@
+Start the OpenAI server (FP16 engine) on port 8002
+
+jetson-containers run dustynv/tensorrt_llm:0.12-r36.4.0 bash -lc '
+set -euo pipefail
+export TLLM_KV_CACHE_FRACTION=0.10
+
+ENGINE_DIR=/data/models/tensorrt_llm/TinyLlama-1.1B-Chat-v1.0-fp16/engines
+TOKENIZER_DIR="$(ls -dt /data/models/huggingface/models--TinyLlama--TinyLlama-1.1B-Chat-v1.0/snapshots/* | head -n 1)"
+
+python3 /data/openai_server_patched.py "$ENGINE_DIR" \
+  --tokenizer "$TOKENIZER_DIR" \
+  --host 0.0.0.0 --port 8002 \
+  --max_beam_width 1
+'

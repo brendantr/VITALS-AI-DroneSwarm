@@ -5,7 +5,7 @@ import sqlite3
 import threading
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 def utc_now_iso() -> str:
@@ -13,11 +13,6 @@ def utc_now_iso() -> str:
 
 
 def _json_dumps(obj: Any) -> str:
-    """
-    Safe JSON serialization for stored payloads/metadata.
-    - ensure_ascii=False keeps logs readable
-    - default=str avoids crashes if a non-JSON type sneaks in (e.g., datetime)
-    """
     return json.dumps(obj, ensure_ascii=False, default=str)
 
 
@@ -34,11 +29,9 @@ class RunStore:
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
 
-        # Concurrency / reliability improvements
-        # WAL reduces writer contention; busy_timeout prevents "database is locked" spikes.
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA synchronous=NORMAL;")
-        self._conn.execute("PRAGMA busy_timeout=3000;")  # milliseconds
+        self._conn.execute("PRAGMA busy_timeout=3000;")
 
         self._init_schema()
 
@@ -74,7 +67,6 @@ class RunStore:
                 );
                 """
             )
-            # Partial unique index for idempotency_key (SQLite requires an index, not a table constraint).
             self._conn.execute(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_idempotency
@@ -84,12 +76,16 @@ class RunStore:
             )
             self._conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS outbound_dedupe (
+                CREATE TABLE IF NOT EXISTS outbox (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     corr_id TEXT NOT NULL,
-                    key TEXT NOT NULL,
                     target TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    msg_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
                     created_ts TEXT NOT NULL,
+                    sent_ts TEXT,
+                    error TEXT,
                     UNIQUE(corr_id, key, target)
                 );
                 """
@@ -195,16 +191,77 @@ class RunStore:
             except sqlite3.IntegrityError:
                 return DedupeResult(False, "duplicate_event_or_idempotency_key")
 
-    def outbound_once(self, corr_id: str, key: str, target: str) -> bool:
+    def list_events(self, corr_id: str, limit: int = 200) -> List[Dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM events WHERE corr_id = ? ORDER BY id ASC LIMIT ?",
+                (corr_id, int(limit)),
+            ).fetchall()
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "id": r["id"],
+                    "corr_id": r["corr_id"],
+                    "event_id": r["event_id"],
+                    "ts": r["ts"],
+                    "type": r["type"],
+                    "source": json.loads(r["source_json"]),
+                    "target": json.loads(r["target_json"]) if r["target_json"] else None,
+                    "span_id": r["span_id"],
+                    "idempotency_key": r["idempotency_key"],
+                    "payload": json.loads(r["payload_json"]),
+                }
+            )
+        return out
+
+    def outbox_enqueue(self, corr_id: str, key: str, target: str, msg: Dict[str, Any]) -> bool:
+        now = utc_now_iso()
         with self._lock, self._conn:
             try:
                 self._conn.execute(
                     """
-                    INSERT INTO outbound_dedupe (corr_id, key, target, created_ts)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO outbox (corr_id, target, key, msg_json, status, created_ts)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (corr_id, key, target, utc_now_iso()),
+                    (corr_id, target, key, _json_dumps(msg), "pending", now),
                 )
                 return True
             except sqlite3.IntegrityError:
                 return False
+
+    def outbox_peek(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM outbox WHERE status = 'pending' ORDER BY id ASC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        out = []
+        for r in rows:
+            out.append(
+                {
+                    "id": r["id"],
+                    "corr_id": r["corr_id"],
+                    "target": r["target"],
+                    "key": r["key"],
+                    "msg": json.loads(r["msg_json"]),
+                    "status": r["status"],
+                    "created_ts": r["created_ts"],
+                }
+            )
+        return out
+
+    def outbox_mark_sent(self, row_id: int) -> None:
+        now = utc_now_iso()
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE outbox SET status='sent', sent_ts=?, error=NULL WHERE id=?",
+                (now, int(row_id)),
+            )
+
+    def outbox_mark_failed(self, row_id: int, error: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE outbox SET status='failed', error=? WHERE id=?",
+                (str(error)[:500], int(row_id)),
+            )

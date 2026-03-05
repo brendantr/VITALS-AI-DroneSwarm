@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Literal, Optional, Union, Annotated
+from typing import Any, Dict, List, Literal, Optional, Union, Annotated
 
-from pydantic import BaseModel, Field, ConfigDict, conlist
+from pydantic import BaseModel, ConfigDict, Field, conlist
 
-# -----------------------------
-# ACP v0.2 (v0.2 only)
-# -----------------------------
 
 ACPComponent = Literal["AgentA", "AgentB", "AgentC", "AgentD", "GUIAdapter", "MAVLinkRouter"]
 ACPTargetComponent = Literal["AgentB", "AgentC", "AgentD", "MAVLinkRouter"]
@@ -38,13 +35,7 @@ class ACPBaseEnvelope(BaseModel):
 
     corr_id: Optional[str] = None
     span_id: Optional[str] = None
-
-    # v0.2 addition: native idempotency key
-    idempotency_key: Optional[str] = Field(
-        default=None,
-        min_length=8,
-        description="Stable key for retry dedupe within a corr_id. Keep stable across retransmits.",
-    )
+    idempotency_key: Optional[str] = Field(default=None, min_length=8)
 
     source: ACPSource
     target: Optional[ACPTarget] = None
@@ -76,7 +67,6 @@ class ACPIntentAreaPoint(BaseModel):
 class ACPIntentArea(BaseModel):
     model_config = ConfigDict(extra="forbid")
     sector: Optional[str] = None
-    # CHANGE: use constrained list to enforce min length reliably
     polygon_wgs84: Optional[conlist(ACPIntentAreaPoint, min_length=3)] = None
 
 
@@ -103,11 +93,22 @@ class ACPIntentPayload(BaseModel):
     rationale: Optional[str] = None
 
 
+class ACPIntent(ACPBaseEnvelope):
+    type: Literal["ACP.Intent"]
+    payload: ACPIntentPayload
+    idempotency_key: str = Field(..., min_length=8)
+
+
 class ACPAckPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ref_event_id: str
     status: Literal["accepted", "rejected", "queued"]
     message: Optional[str] = None
+
+
+class ACPAck(ACPBaseEnvelope):
+    type: Literal["ACP.Ack"]
+    payload: ACPAckPayload
 
 
 class ACPStatusState(str, Enum):
@@ -128,10 +129,9 @@ class ACPStatusPayload(BaseModel):
     detail: Optional[str] = None
 
 
-class ACPResultArtifacts(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    mission_plan_id: Optional[str] = None
-    waypoint_count: Optional[int] = Field(default=None, ge=0)
+class ACPStatus(ACPBaseEnvelope):
+    type: Literal["ACP.Status"]
+    payload: ACPStatusPayload
 
 
 class ACPResultPayload(BaseModel):
@@ -139,24 +139,7 @@ class ACPResultPayload(BaseModel):
     ref_event_id: str
     outcome: Literal["success", "partial", "failure"]
     summary: Optional[str] = None
-    artifacts: Optional[ACPResultArtifacts] = None
-
-
-class ACPIntent(ACPBaseEnvelope):
-    type: Literal["ACP.Intent"]
-    payload: ACPIntentPayload
-    # Require idempotency_key for side-effecting intents
-    idempotency_key: str = Field(..., min_length=8)
-
-
-class ACPAck(ACPBaseEnvelope):
-    type: Literal["ACP.Ack"]
-    payload: ACPAckPayload
-
-
-class ACPStatus(ACPBaseEnvelope):
-    type: Literal["ACP.Status"]
-    payload: ACPStatusPayload
+    artifacts: Optional[Dict[str, Any]] = None
 
 
 class ACPResult(ACPBaseEnvelope):
@@ -166,70 +149,18 @@ class ACPResult(ACPBaseEnvelope):
 
 ACPMessage = Annotated[Union[ACPIntent, ACPAck, ACPStatus, ACPResult], Field(discriminator="type")]
 
-# -----------------------------
-# Agent B API v0.1 (Query)
-# -----------------------------
+
+ToolName = Literal["agentb.query", "emit.status", "emit.result"]
 
 
-class AgentBClientInfo(BaseModel):
+class ToolCall(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    component: Optional[str] = None
-    instance: Optional[str] = None
+    tool: ToolName
+    args: Dict[str, Any] = Field(default_factory=dict)
 
 
-class AgentBQueryRequest(BaseModel):
+class Plan(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema: Literal["agentb.api.v0.1"] = Field(default="agentb.api.v0.1")
-    type: Literal["AgentB.QueryRequest"] = Field(default="AgentB.QueryRequest")
-
-    query: str = Field(..., min_length=1)
-    n_results: int = Field(default=8, ge=1, le=100)
-    k_init: int = Field(default=50, ge=1, le=500)
-    rerank: bool = False
-
-    where: Dict[str, Any] = Field(default_factory=dict)
-    include_scores: bool = True
-    include_metadata: bool = True
-
-    corr_id: Optional[str] = None
-    client: Optional[AgentBClientInfo] = None
-
-
-class AgentBQueryResultItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    rank: int = Field(..., ge=1)
-    id: str
-    text: str
-    metadata: Optional[Dict[str, Any]] = None
-    score: Optional[float] = None
-
-
-class AgentBQueryStats(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    n_results: Optional[int] = None
-    k_init: Optional[int] = None
-    rerank: Optional[bool] = None
-    latency_ms: Optional[float] = None
-
-
-class AgentBQueryError(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    code: Optional[str] = None
-    message: Optional[str] = None
-    detail: Optional[Dict[str, Any]] = None
-
-
-class AgentBQueryResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    schema: Literal["agentb.api.v0.1"]
-    type: Literal["AgentB.QueryResponse"]
-
-    ok: bool
-    query_id: str = Field(..., min_length=8)
-    ts: datetime
-
-    corr_id: Optional[str] = None
-
-    results: list[AgentBQueryResultItem] = Field(default_factory=list)
-    stats: Optional[AgentBQueryStats] = None
-    error: Optional[AgentBQueryError] = None
+    plan_id: str = Field(..., min_length=6)
+    actions: List[ToolCall] = Field(default_factory=list)
+    rationale: Optional[str] = None
