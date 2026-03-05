@@ -21,6 +21,8 @@ osmnx
 #  - Utilities to download and work with OpenStreetMap data (e.g., streets, buildings) and build spatial graphs
 matplotlib  
 #  - Plotting library for producing graphs and debugging visualizations of maps and data
+geopandas
+#  - A high-level geospatial data library built on top of pandas and shapely for working with geospatial dataframes 
 
 # ===== Database / PostGIS =====
 sqlalchemy
@@ -29,6 +31,9 @@ geoalchemy2
 #  - Extensions to SQLAlchemy that add PostGIS/geometry column types and helpers
 psycopg2-binary
 #  - Low-level PostgreSQL database adapter used to execute SQL and fetch results (binary dist)
+pyproj
+#  - Python interface to PROJ for coordinate transformations and geodetic calculations
+
 
 # ===== LLM & Computer Vision =====
 ollama
