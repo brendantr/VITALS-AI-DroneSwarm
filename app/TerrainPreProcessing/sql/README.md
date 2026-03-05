@@ -21,6 +21,8 @@ Python then rebuilds the existing `Tile[][]` grid from these rows.
 
 ## Install the SQL into Postgres
 
+Before installing, make sure your DB is a **PostGIS** database that contains OSM tables like `planet_osm_polygon` and `planet_osm_line` (typical if you’re using `overv/openstreetmap-tile-server`).
+
 ### Option A: using Docker (typical tile-server / PostGIS container)
 
 1. Find the container name/ID:
@@ -36,6 +38,20 @@ If you are in the repo root (so the file path resolves), run:
 Notes:
 - If your DB user/db differs, replace `renderer`/`gis`.
 - On Windows PowerShell, input redirection (`< file.sql`) works; if it doesn’t in your setup, use Option B.
+
+### Option C (optional): let Python auto-install it
+
+If you want the app to install the SQL automatically (useful on dev machines), set:
+
+- `VITALS_AUTO_INSTALL_TILE_SQL=1`
+
+The app will check for `vitals.get_tile_counts_4326` and, if missing, execute this SQL file into the connected DB.
+
+You can also point the app at a different database via:
+
+- `VITALS_POSTGIS_URL=postgresql://user:pass@host:5432/dbname`
+
+If `VITALS_POSTGIS_URL` is not set, the default is `postgresql://renderer:renderer@localhost:5432/gis`.
 
 ### Option B: run from psql on your host
 
