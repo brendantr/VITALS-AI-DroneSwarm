@@ -16,6 +16,7 @@
 *.avi
 *.data
 *.json
+!schemas/**/*.json
 *.cfg
 !setup.cfg
 !cfg/yolov3*.cfg
@@ -259,3 +260,5 @@ com_crashlytics_export_strings.xml
 crashlytics.properties
 crashlytics-build.properties
 fabric.properties
+chroma_data/
+
