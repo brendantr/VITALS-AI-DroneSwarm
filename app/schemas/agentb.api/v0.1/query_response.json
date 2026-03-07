@@ -1,0 +1,33 @@
+{
+  "$id": "https://vitals.local/schemas/agentb.api/v0.1/query_response.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AgentB QueryResponse v0.1",
+  "type": "object",
+  "required": ["schema", "type", "ok", "query_id", "ts", "results"],
+  "properties": {
+    "schema": { "const": "agentb.api.v0.1" },
+    "type": { "const": "AgentB.QueryResponse" },
+    "ok": { "type": "boolean" },
+    "query_id": { "type": "string", "minLength": 1 },
+    "ts": { "type": "string", "minLength": 1 },
+    "corr_id": { "type": ["string", "null"] },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rank", "id", "text"],
+        "properties": {
+          "rank": { "type": "integer", "minimum": 1 },
+          "id": { "type": "string" },
+          "text": { "type": "string" },
+          "metadata": { "type": "object" },
+          "score": { "type": ["number", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "stats": { "type": ["object", "null"] },
+    "error": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

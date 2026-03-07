@@ -1,0 +1,55 @@
+{
+  "$id": "https://vitals.local/schemas/acp/v0.2/message.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ACP Message v0.2",
+  "type": "object",
+  "required": ["schema", "event_id", "ts", "type", "source", "payload"],
+  "properties": {
+    "schema": { "const": "acp.v0.2" },
+    "event_id": { "type": "string", "minLength": 1 },
+    "idempotency_key": { "type": "string" },
+    "ts": { "type": "string", "minLength": 1 },
+    "type": { "type": "string", "minLength": 1 },
+    "corr_id": { "type": "string" },
+    "span_id": { "type": "string" },
+    "source": {
+      "type": "object",
+      "required": ["system", "component", "instance"],
+      "properties": {
+        "system": { "type": "string" },
+        "component": { "type": "string" },
+        "instance": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "target": { "type": "object", "additionalProperties": true },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "intent_kind": { "type": "string" },
+        "priority": { "type": "number" },
+        "constraints": { "type": "object", "additionalProperties": true },
+        "area": { "type": "object", "additionalProperties": true },
+        "rationale": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": { "const": "ACP.Intent" }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "required": ["intent_kind"]
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

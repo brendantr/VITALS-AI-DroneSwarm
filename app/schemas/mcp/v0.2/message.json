@@ -1,0 +1,54 @@
+{
+  "$id": "https://vitals.local/schemas/mcp/v0.2/message.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MCP Message v0.2",
+  "type": "object",
+  "required": ["schema", "event_id", "ts", "type", "source", "payload"],
+  "properties": {
+    "schema": { "const": "mcp.v0.2" },
+    "event_id": { "type": "string", "minLength": 1 },
+    "idempotency_key": { "type": "string" },
+    "ts": { "type": "string", "minLength": 1 },
+    "type": { "type": "string", "minLength": 1 },
+    "corr_id": { "type": "string" },
+    "source": {
+      "type": "object",
+      "required": ["system", "component", "instance"],
+      "properties": {
+        "system": { "type": "string" },
+        "component": { "type": "string" },
+        "instance": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "label": { "type": "string" },
+        "confidence": { "type": "number" },
+        "sector": { "type": "string" },
+        "uav_id": { "type": "string" },
+        "frame_ts": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "text": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": { "const": "MCP.Detection" }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "required": ["label", "confidence", "sector", "uav_id", "frame_ts"]
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

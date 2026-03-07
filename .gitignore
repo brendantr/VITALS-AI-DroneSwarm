@@ -16,6 +16,8 @@
 *.avi
 *.data
 *.json
+!schemas/**/*.json
+!app/schemas/**/*.json
 *.cfg
 !setup.cfg
 !cfg/yolov3*.cfg
@@ -217,6 +219,14 @@ Temporary Items
 .html  # Bokeh Plots
 .pg  # TensorFlow Frozen Graphs
 .avi # videos
+
+# Agent runtime data
+app/agent_b/chroma_data/
+app/agent_b/data/
+app/agent_b/data/lake/events/
+app/agent_b/data/lake/ingest_dedupe.db
+app/agent_c.db
+app/agent_c_data/
 
 # Sensitive or high-churn files:
 .idea/**/dataSources/

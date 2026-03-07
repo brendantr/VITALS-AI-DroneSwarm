@@ -1,0 +1,56 @@
+services:
+  database:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: vitals_user
+      POSTGRES_PASSWORD: vitals_password
+      POSTGRES_DB: vitals
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vitals_user -d vitals"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  agent-b:
+    build:
+      context: .
+      dockerfile: ./agent_b/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      VITALS_SCHEMA_ROOT: /app/schemas
+      VITALS_PARQUET_DIR: /app/agent_b/data/lake/events
+      VITALS_INGEST_DEDUPE_DB: /app/agent_b/data/lake/ingest_dedupe.db
+    volumes:
+      - ./agent_b/data:/app/agent_b/data
+      - ./agent_b/chroma_data:/app/agent_b/chroma_data
+    depends_on:
+      - database
+  agent-c:
+    build:
+      context: .
+      dockerfile: ./agent_c/Dockerfile
+    ports:
+      - "8082:8080"
+    environment:
+      AGENT_SCHEMA_ROOT: /app/schemas
+      AGENT_B_BASE_URL: http://agent-b:8081
+      AGENT_C_DB_PATH: /app/agent_c_data/agent_c.db
+      AGENT_LLM_ENABLED: "false"
+    volumes:
+      - ./agent_c_data:/app/agent_c_data
+    depends_on:
+      - agent-b
+  vitals-gcs:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    command: ["python3", "missionState.py"]
+    depends_on:
+      - database
+volumes:
+  postgres_data:
