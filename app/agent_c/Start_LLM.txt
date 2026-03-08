@@ -1,0 +1,23 @@
+Start the OpenAI server (FP16 engine) on port 8002
+
+jetson-containers run -e TLLM_KV_CACHE_FRACTION=0.80 \
+  dustynv/tensorrt_llm:0.12-r36.4.0 bash -lc '
+set -euo pipefail
+ENGINE_DIR=/data/models/tensorrt_llm/TinyLlama-1.1B-Chat-v1.0-fp16/engines
+TOKENIZER_DIR="$(ls -dt /data/models/huggingface/models--TinyLlama--TinyLlama-1.1B-Chat-v1.0/snapshots/* | head -n 1)"
+python3 /data/openai_server_patched.py "$ENGINE_DIR" --tokenizer "$TOKENIZER_DIR" --host 0.0.0.0 --port 8002 --max_beam_width 1
+'
+
+
+
+
+Send the LLM a message
+
+curl -s http://127.0.0.1:8002/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model":"tensorrt_llm",
+    "messages":[{"role":"user","content":"Say hello in one short sentence."}],
+    "temperature":0.2,
+    "max_tokens":32
+  }' | python3 -m json.tool
