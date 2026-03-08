@@ -1,8 +1,10 @@
+import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QDialog, QLineEdit
+    QScrollArea, QFrame, QDialog, QLineEdit, QSpinBox, QDoubleSpinBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QIcon, QPixmap
 
 from GUI.Entities.Drone import Drone
 from GUI.Entities.POI import POI
@@ -40,12 +42,38 @@ class MapPage(QWidget):
         sidebar_layout.setContentsMargins(12, 12, 12, 12)
         sidebar_layout.setSpacing(8)
 
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+
         title = QLabel("VITALS")
         title.setStyleSheet(
             "font-size: 20px; font-weight: bold; color: #e0e0e0; "
             "border: none; background: transparent;"
         )
-        sidebar_layout.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch()
+
+        # Settings gear icon button
+        self.settings_button = QPushButton()
+        gear_icon_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "GEAR_ICON.png")
+        if os.path.exists(gear_icon_path):
+            pixmap = QPixmap(gear_icon_path).scaled(
+                24, 24, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            self.settings_button.setIcon(QIcon(pixmap))
+            self.settings_button.setIconSize(QSize(24, 24))
+        else:
+            self.settings_button.setText("\u2699")
+        self.settings_button.setFixedSize(32, 32)
+        self.settings_button.setStyleSheet(
+            "QPushButton { background: transparent; border: none; }"
+            "QPushButton:hover { background-color: rgba(255,255,255,0.1); border-radius: 4px; }"
+        )
+        self.settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_button.clicked.connect(self.open_settings_dialog)
+        title_row.addWidget(self.settings_button)
+
+        sidebar_layout.addLayout(title_row)
 
         # Connect to Mavlink
         self.connect_button = QPushButton("Connect to Mavlink")
@@ -418,6 +446,16 @@ class MapPage(QWidget):
     def show_path_visualization(self):
         self.gui_ref.missionState.showPathVisualization()
 
+    # ── Settings dialog ──────────────────────────────────────
+
+    def open_settings_dialog(self):
+        if hasattr(self, '_settings_dialog') and self._settings_dialog is not None and self._settings_dialog.isVisible():
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
+            return
+        self._settings_dialog = SettingsDialog(self, self.gui_ref)
+        self._settings_dialog.show()
+
     # ── Debug popup ───────────────────────────────────────────
 
     def open_debug_popup(self):
@@ -444,6 +482,84 @@ class MapPage(QWidget):
             except ValueError:
                 return None
         return None
+
+    # ── Mission ended state ─────────────────────────────────────
+
+    def enter_mission_ended_state(self):
+        """Grey out all controls except Back to Home, replace View Path Plan with View Report."""
+        self.connect_button.setEnabled(False)
+        self.place_gcs_button.setEnabled(False)
+        self.start_polygon_button.setEnabled(False)
+        self.end_mission_button.setEnabled(False)
+        self.end_mission_button.setText("Mission Ended")
+        self.polygon_edit_frame.setVisible(False)
+        self.debug_button.setEnabled(False)
+
+        # Replace View Path Plan with View Report
+        self.view_path_button.setText("View Report")
+        self.view_path_button.setEnabled(True)
+        try:
+            self.view_path_button.clicked.disconnect()
+        except TypeError:
+            pass
+        self.view_path_button.clicked.connect(self.show_mission_report)
+
+        # Disable chat input
+        self.chat_sidebar.input_field.setEnabled(False)
+
+    def show_mission_report(self):
+        """Show planned vs actual drone paths using matplotlib."""
+        import matplotlib.pyplot as plt
+
+        report_data = self.gui_ref.missionState.get_mission_report_data()
+        drone_colors = ['#533483', '#0f3460', '#e94560', '#00e676', '#ffab00']
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+        fig.patch.set_facecolor('#1a1a2e')
+        ax.set_facecolor('#16213e')
+
+        for i, data in enumerate(report_data):
+            color = drone_colors[i % len(drone_colors)]
+            drone_id = data['drone_id']
+
+            # Plot planned path
+            if data['planned']:
+                planned_lats = [p[0] for p in data['planned']]
+                planned_lons = [p[1] for p in data['planned']]
+                ax.plot(planned_lons, planned_lats, '--', color=color, alpha=0.5,
+                        linewidth=2, label=f'Drone {drone_id} — Planned')
+                ax.plot(planned_lons[0], planned_lats[0], 'o', color=color, markersize=8)
+
+            # Plot actual path
+            if data['actual']:
+                actual_lats = [p[0] for p in data['actual']]
+                actual_lons = [p[1] for p in data['actual']]
+                ax.plot(actual_lons, actual_lats, '-', color=color, alpha=1.0,
+                        linewidth=2, label=f'Drone {drone_id} — Actual')
+
+        # Plot mission polygon
+        if self.polygon_points:
+            poly_lats = [p[0] for p in self.polygon_points] + [self.polygon_points[0][0]]
+            poly_lons = [p[1] for p in self.polygon_points] + [self.polygon_points[0][1]]
+            ax.plot(poly_lons, poly_lats, 'w-', linewidth=1.5, alpha=0.4, label='Mission Area')
+
+        # Plot POI locations
+        for poi in self.pois:
+            ax.plot(poi.lon, poi.lat, 'r*', markersize=12)
+            ax.annotate(poi.name, (poi.lon, poi.lat), color='white', fontsize=8,
+                        xytext=(5, 5), textcoords='offset points')
+
+        ax.set_title('Mission Report — Planned vs Actual Path', color='#e0e0e0',
+                      fontsize=14, fontweight='bold')
+        ax.set_xlabel('Longitude', color='#e0e0e0')
+        ax.set_ylabel('Latitude', color='#e0e0e0')
+        ax.tick_params(colors='#aaaaaa')
+        ax.legend(loc='upper left', facecolor='#16213e', edgecolor='#533483',
+                  labelcolor='#e0e0e0', fontsize=9)
+
+        # Store reference to prevent garbage collection
+        self._report_fig = fig
+        plt.show(block=False)
 
     # ── Mission reset ─────────────────────────────────────────
 
@@ -472,6 +588,17 @@ class MapPage(QWidget):
         self.end_mission_button.setEnabled(False)
         self.end_mission_button.setText("Start Mission")
         self.view_path_button.setEnabled(False)
+        self.view_path_button.setText("View Path Plan")
+        try:
+            self.view_path_button.clicked.disconnect()
+        except TypeError:
+            pass
+        self.view_path_button.clicked.connect(self.show_path_visualization)
+
+        self.debug_button.setEnabled(True)
+
+        # Re-enable chat input
+        self.chat_sidebar.input_field.setEnabled(True)
 
         # Reconnect end_mission_button to start mission handler
         try:
@@ -546,3 +673,103 @@ class DebugDialog(QDialog):
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn)
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, map_page, gui_ref, parent=None):
+        super().__init__(parent)
+        self.gui_ref = gui_ref
+        self.setWindowTitle("\u2699 Mission Settings")
+        self.setFixedWidth(350)
+        self.setWindowFlags(
+            self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        title = QLabel("Drone Settings")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e0e0e0;")
+        layout.addWidget(title)
+
+        self.drone_widgets = {}
+        drones = gui_ref.missionState.getDrones() if hasattr(gui_ref, 'missionState') and gui_ref.missionState else []
+        drone_objects = gui_ref.missionState.drones if hasattr(gui_ref, 'missionState') and gui_ref.missionState else []
+
+        if not drone_objects:
+            no_drones = QLabel("No drones connected.\nConnect to MAVLink first.")
+            no_drones.setStyleSheet("color: #888; font-size: 12px;")
+            no_drones.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(no_drones)
+        else:
+            for drone in drone_objects:
+                frame = QFrame()
+                frame.setStyleSheet(
+                    "QFrame { background-color: #0f3460; border: 1px solid #337ab7; "
+                    "border-radius: 8px; padding: 8px; }"
+                )
+                frame_layout = QVBoxLayout(frame)
+                frame_layout.setSpacing(6)
+
+                drone_label = QLabel(f"Drone {drone.drone_id}")
+                drone_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #e0e0e0; border: none;")
+                frame_layout.addWidget(drone_label)
+
+                # Operating Altitude
+                alt_row = QHBoxLayout()
+                alt_label = QLabel("Operating Altitude (m):")
+                alt_label.setStyleSheet("font-size: 12px; color: #ccc; border: none;")
+                alt_row.addWidget(alt_label)
+
+                alt_spin = QSpinBox()
+                alt_spin.setRange(5, 120)
+                alt_spin.setValue(int(drone.operatingAltitude))
+                alt_spin.setSuffix(" m")
+                alt_row.addWidget(alt_spin)
+                frame_layout.addLayout(alt_row)
+
+                # Max Velocity
+                vel_row = QHBoxLayout()
+                vel_label = QLabel("Max Velocity (m/s):")
+                vel_label.setStyleSheet("font-size: 12px; color: #ccc; border: none;")
+                vel_row.addWidget(vel_label)
+
+                vel_spin = QDoubleSpinBox()
+                vel_spin.setRange(0.5, 20.0)
+                vel_spin.setSingleStep(0.5)
+                vel_spin.setDecimals(1)
+                max_vel = getattr(drone, 'maxVelocity', 5.0)
+                vel_spin.setValue(max_vel)
+                vel_spin.setSuffix(" m/s")
+                vel_row.addWidget(vel_spin)
+                frame_layout.addLayout(vel_row)
+
+                layout.addWidget(frame)
+                self.drone_widgets[drone.drone_id] = {
+                    'alt_spin': alt_spin,
+                    'vel_spin': vel_spin
+                }
+
+        layout.addStretch()
+
+        # Apply / Close buttons
+        btn_layout = QHBoxLayout()
+
+        apply_btn = QPushButton("Apply")
+        apply_btn.setProperty("cssClass", "primary")
+        apply_btn.clicked.connect(self.apply_settings)
+        btn_layout.addWidget(apply_btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        btn_layout.addWidget(close_btn)
+
+        layout.addLayout(btn_layout)
+
+    def apply_settings(self):
+        for drone_id, widgets in self.drone_widgets.items():
+            new_alt = widgets['alt_spin'].value()
+            new_vel = widgets['vel_spin'].value()
+            self.gui_ref.missionState.set_drone_operatingAltitude(drone_id, new_alt)
+            self.gui_ref.missionState.set_drone_maxVelocity(drone_id, new_vel)
+        self.close()

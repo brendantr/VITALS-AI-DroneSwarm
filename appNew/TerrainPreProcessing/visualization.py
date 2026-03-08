@@ -427,9 +427,11 @@ class Interactive_Visualization:
         self.create_layer_toggle_button([0.9, 0.4, 0.1, 0.075], "Grid")
         self.create_layer_toggle_button([0.9, 0.3, 0.1, 0.075], "Outline")
         
-        #WARNING: If the buttons come out of scope, you will lose access to it, which is not good!. 
-        #plt.show needs to be in here. 
-        plt.show()
+        #WARNING: If the buttons come out of scope, you will lose access to it, which is not good!.
+        #plt.show needs to be in here.
+        # Store figure reference on self to prevent garbage collection of buttons/animations
+        self._fig = self.ax.get_figure()
+        plt.show(block=False)
         return None
 
 

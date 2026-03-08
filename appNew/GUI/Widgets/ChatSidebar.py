@@ -135,12 +135,17 @@ class ChatSidebar(QWidget):
                 self.gui_ref.call_start_mission()
                 self._invoke_bubble("LLM: Starting search mission.", "llm")
 
+            def resume_drone_mission(drone_id, **kwargs):
+                self.gui_ref.missionState.resume_drone_mission(int(drone_id))
+                self._invoke_bubble(f"LLM: Resuming mission for drone {drone_id}.", "llm")
+
             def on_complete(future):
                 available_tools = {
                     'create_poi_investigate_job': call_create_poi_investigate_job,
                     'call_return_to_launch': call_return_to_launch,
                     'call_end_mission': call_end_mission,
-                    'call_start_mission': call_start_mission
+                    'call_start_mission': call_start_mission,
+                    'resume_drone_mission': resume_drone_mission
                 }
                 try:
                     response = future.result()

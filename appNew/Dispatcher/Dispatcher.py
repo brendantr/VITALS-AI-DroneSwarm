@@ -299,10 +299,14 @@ class Dispatcher:
 
     async def start_mission(self, drone_id, takeoff_altitude=10):
         drone = self.missionState.get_drone(drone_id)
-        takeoff_altitude = drone.operatingAltitude
         if not drone:
             print(f"Drone {drone_id} not found.")
-            return 
+            return
+        # Don't start mission if drone is unavailable (e.g., RTL in progress)
+        if not drone.available:
+            print(f"Drone {drone_id} is unavailable (RTL/ended), aborting mission start.")
+            return
+        takeoff_altitude = drone.operatingAltitude
         if drone.system_status == 3: #drone is grounded need to add takeoff
             await  self.takeoff(drone_id, takeoff_altitude)
             
@@ -316,6 +320,10 @@ class Dispatcher:
         if not await self.wait_for_mode(drone_id, "AUTO"):
             print(f"Mission aborted: Drone {drone_id} failed to switch to AUTO mode.")
             return
+        # Apply max velocity before starting
+        if drone.maxVelocity:
+            self.set_max_velocity(drone_id, drone.maxVelocity)
+
         # Start the mission
         self.master.mav.command_long_send(
             drone_id, 0,
@@ -378,6 +386,40 @@ class Dispatcher:
         
 
     
+    def set_max_velocity(self, drone_id, velocity_ms):
+        """Set the max waypoint navigation speed for a drone.
+
+        Args:
+            drone_id: Target drone system ID
+            velocity_ms: Speed in m/s
+        """
+        if not self.master:
+            print(f"Cannot set velocity: MAVLink is not connected!")
+            return
+
+        # Set WPNAV_SPEED parameter (expects cm/s)
+        self.master.mav.param_set_send(
+            drone_id,
+            0,
+            b'WPNAV_SPEED',
+            float(velocity_ms * 100),  # Convert m/s to cm/s
+            mavutil.mavlink.MAV_PARAM_TYPE_REAL32
+        )
+        print(f"Set WPNAV_SPEED to {velocity_ms * 100} cm/s for drone {drone_id}")
+
+        # Also send DO_CHANGE_SPEED for immediate effect if airborne
+        self.master.mav.command_long_send(
+            drone_id,
+            0,
+            mavutil.mavlink.MAV_CMD_DO_CHANGE_SPEED,
+            0,
+            0,  # Speed type: 0 = groundspeed
+            float(velocity_ms),  # Speed in m/s
+            -1,  # Throttle (-1 = no change)
+            0, 0, 0, 0
+        )
+        print(f"Sent DO_CHANGE_SPEED {velocity_ms} m/s to drone {drone_id}")
+
     def return_to_launch(self, drone_id):
         """Send the RTL command to the drone."""
         if not self.master:

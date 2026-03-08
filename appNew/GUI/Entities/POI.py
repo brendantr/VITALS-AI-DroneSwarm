@@ -31,35 +31,21 @@ class POI:
         if marker_id == self.marker_id:
             self.open_popup()
 
-    def target_found(self, drone_id):
-        self.poi_target_at_location = True
-        self.map_widget.set_marker_tooltip(self.marker_id, f"{self.name} (Target Found)")
-
-        # Non-modal dialog so user can still interact with the map (e.g. click POIs)
-        self._target_dialog = TargetFoundDialog(self.name, self.gui_ref)
-        self._target_dialog.accepted.connect(
-            lambda: self.gui_ref.missionState.end_mission()
-        )
-        self._target_dialog.rejected.connect(
-            lambda: self.gui_ref.missionState.remove_poi_investigate_job(self.id)
-        )
-        self._target_dialog.show()
-
     def open_popup(self):
         dialog = POIDetailDialog(self, self.gui_ref)
         dialog.exec()
 
 
-class TargetFoundDialog(QDialog):
-    def __init__(self, poi_name, gui_ref, parent=None):
+class TraversalCompleteDialog(QDialog):
+    def __init__(self, drone_id, gui_ref, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"{poi_name} - Target Found")
+        self.setWindowTitle(f"Drone {drone_id} - Search Complete")
         self.setFixedSize(400, 200)
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
         layout = QVBoxLayout(self)
 
-        label = QLabel(f"Target found at {poi_name}!\nDo you want to end the mission or continue the search?")
+        label = QLabel(f"Drone {drone_id} has completed its search traversal.\nEnd the mission or repeat the search path?")
         label.setStyleSheet("font-size: 14px;")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setWordWrap(True)
@@ -74,10 +60,10 @@ class TargetFoundDialog(QDialog):
         end_btn.clicked.connect(self.accept)
         btn_layout.addWidget(end_btn)
 
-        continue_btn = QPushButton("Continue Search")
-        continue_btn.setProperty("cssClass", "primary")
-        continue_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(continue_btn)
+        repeat_btn = QPushButton("Repeat Traversal")
+        repeat_btn.setProperty("cssClass", "primary")
+        repeat_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(repeat_btn)
 
         layout.addLayout(btn_layout)
 

@@ -236,9 +236,16 @@ class GUI:
         event.wait(timeout=30)
         return result[0]
 
-    def showTargetFoundDialog(self, poi, drone_id):
-        """Thread-safe: show target found dialog on the main thread."""
-        self._invoker.invoke(lambda: poi.target_found(drone_id))
+    def showTraversalCompleteDialog(self, drone_id):
+        """Thread-safe: show traversal complete dialog on the main thread."""
+        def _show():
+            from GUI.Entities.POI import TraversalCompleteDialog
+            dialog = TraversalCompleteDialog(drone_id, self)
+            dialog.accepted.connect(lambda: self.missionState.end_mission())
+            dialog.rejected.connect(lambda: self.missionState.repeat_search_traversal(drone_id))
+            dialog.show()
+            self._traversal_dialog = dialog  # prevent GC
+        self._invoker.invoke(_show)
 
     # ── Chat ──────────────────────────────────────────────
 
@@ -335,6 +342,13 @@ class GUI:
             self.map_page.end_mission_button.setText("End Mission")
             self.map_page.end_mission_button.clicked.disconnect()
             self.map_page.end_mission_button.clicked.connect(self.missionState.end_mission)
+
+    def enter_mission_ended_state(self):
+        """Grey out controls and switch to mission-ended review mode."""
+        def _do():
+            self.map_page.enter_mission_ended_state()
+            self.create_system_chat_message("Mission ended. All drones returning to launch. View the mission report or return home to start a new mission.")
+        self._invoker.invoke(_do)
 
     def call_start_search_mission(self):
         self.missionState.startSearchMission()
