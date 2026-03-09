@@ -3,6 +3,7 @@ import json
 import ollama
 import base64
 
+from models.jobs.job import Job
 
 
 
@@ -20,7 +21,7 @@ def call_llm(prompt, mission_area, drones, pois):
         Returns:
         Job: A Job object
         """
-        return Job(job_name, drone_id, waypoints)
+        return Job(job_name, "pending", waypoints)
 
     def create_poi_investigate_job(poi_id, drone_id, priority = 5):
         """
@@ -33,7 +34,7 @@ def call_llm(prompt, mission_area, drones, pois):
         Returns:
         Job: A Job object
         """
-        return Job(f"Investigate POI {poi_id}", drone_id, [(poi_id.lat, poi_id.lon)], priority)
+        return Job(f"Investigate POI {poi_id}", "pending", [(poi_id.lat, poi_id.lon)], None, priority)
 
     def call_return_to_launch(drone_id):
         """
@@ -44,7 +45,7 @@ def call_llm(prompt, mission_area, drones, pois):
         Returns:
         Job: A Job object
         """
-        return Job(f"Return to Launch", drone_id, [(0, 0)])
+        return Job("Return to Launch", "pending", [(0, 0)])
     
     def call_end_mission():
         """
@@ -55,7 +56,7 @@ def call_llm(prompt, mission_area, drones, pois):
         """
        
        
-        return Job(f"Return to Launch", drone_id, [(0, 0)])
+        return Job("Return to Launch", "pending", [(0, 0)])
 
     system_prompt = f"""
     You are a drone flight planner. 

@@ -4,9 +4,9 @@ import tkintermapview
 import PIL.Image
 import PIL.ImageTk
 
-from TerrainPreProcessing.check_internet import has_internet
+from Agent_D.OSM_Database.ingestion.check_internet import has_internet
 from GUI.Entities.Drone import Drone
-from GUI.Entities.Job import Job
+from models.jobs.job import Job
 from GUI.Entities.POI import POI
 from GUI.Widgets.ChatSidebar import ChatSidebar
 
@@ -279,7 +279,7 @@ class MapPage(customtkinter.CTkFrame):
         path_obj = self.map_widget.set_path(position_list=list_of_tuples, width=5, color="red")
         print("Job Created")
         # create job object
-        job = Job(job_name, drone_id, list_of_tuples, path_obj)
+        job = Job(job_name, "pending", list_of_tuples, self.gui_ref.missionState, Job.NORMAL, path_obj)
         self.jobs.append(job)
 
     def start_creating_polygon(self):
@@ -315,7 +315,17 @@ class MapPage(customtkinter.CTkFrame):
             self.start_polygon_button.configure(text="Finish Creating Polygon")
 
     def create_test_job(self):
-        job = Job((28.6037837, -81.2018019), [(28.6037837, -81.2018019), (28.6037931, -81.2008148), (28.6037366, -81.1983150)], (28.6037366, -81.1983150), None)
+        job = Job(
+            "Debug Job",
+            "pending",
+            [
+                (28.6037837, -81.2018019),
+                (28.6037931, -81.2008148),
+                (28.6037366, -81.1983150),
+            ],
+            None,
+            Job.NORMAL,
+        )
         print(job.start)
         print(job.waypoints)
         print(job.end)
