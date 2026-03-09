@@ -1,74 +1,74 @@
-import customtkinter
+import os
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QPushButton, QLabel, QSizePolicy
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
 
 
-class HomePage(customtkinter.CTkFrame):
-    def __init__(self, parent, gui_ref, **kwargs):
-        super().__init__(parent, **kwargs)
-
+class HomePage(QWidget):
+    def __init__(self, gui_ref, **kwargs):
+        super().__init__(**kwargs)
         self.gui_ref = gui_ref
 
-        # Main content frame (to hold both views)
-        self.content_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        self.content_frame.pack(expand=True)
+        # Main layout
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Welcome label (always visible)
-        self.label = customtkinter.CTkLabel(self.content_frame, text="Welcome to VITALS!", font=("Arial", 24))
-        self.label.pack(pady=20)
+        # Lockheed Martin Logo
+        lm_logo_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "lockheed_martin_logo.png")
+        if os.path.exists(lm_logo_path):
+            lm_label = QLabel()
+            lm_pixmap = QPixmap(lm_logo_path).scaled(
+                400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            lm_label.setPixmap(lm_pixmap)
+            lm_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(lm_label)
 
-        # Initial menu frame
-        self.initial_menu_frame = customtkinter.CTkFrame(self.content_frame, fg_color="transparent")
-        self.start_mission_button = customtkinter.CTkButton(
-            self.initial_menu_frame, text="Start Mission", command=self.show_mission_type_selection
+        # VITALS Logo (replaces welcome text)
+        vitals_logo_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "VITALS_LOGO.png")
+        if os.path.exists(vitals_logo_path):
+            vitals_label = QLabel()
+            vitals_pixmap = QPixmap(vitals_logo_path).scaled(
+                200, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            vitals_label.setPixmap(vitals_pixmap)
+            vitals_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(vitals_label)
+        layout.addSpacing(30)
+
+        # Mission type selection
+        mission_type_label = QLabel("Select Mission Type")
+        mission_type_label.setStyleSheet("font-size: 18px; font-weight: 600; color: #e0e0e0;")
+        mission_type_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(mission_type_label)
+        layout.addSpacing(15)
+
+        self.simulation_button = QPushButton("Simulation")
+        self.simulation_button.setProperty("cssClass", "primary")
+        self.simulation_button.setMinimumWidth(250)
+        self.simulation_button.setMinimumHeight(44)
+        self.simulation_button.clicked.connect(self.start_simulation)
+        layout.addWidget(self.simulation_button, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.real_mission_button = QPushButton("Real Mission")
+        self.real_mission_button.setProperty("cssClass", "primary")
+        self.real_mission_button.setMinimumWidth(250)
+        self.real_mission_button.setMinimumHeight(44)
+        self.real_mission_button.clicked.connect(self.start_real_mission)
+        layout.addWidget(self.real_mission_button, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        layout.addSpacing(10)
+
+        info_label = QLabel(
+            "*Simulation mode allows for the placement of predefined targets\n"
+            "to replace the detection of objects from onboard drone CV."
         )
-        self.mission_review_button = customtkinter.CTkButton(
-            self.initial_menu_frame, text="Mission Review",
-        )
-        self.start_mission_button.pack(pady=10)
-        self.mission_review_button.pack(pady=10)
-
-        # Mission type selection frame (initially hidden)
-        self.mission_type_frame = customtkinter.CTkFrame(self.content_frame, fg_color="transparent")
-
-        self.mission_type_label = customtkinter.CTkLabel(
-            self.mission_type_frame, text="Select Mission Type", font=("Arial", 16)
-        )
-        self.mission_type_label.pack(pady=10)
-
-        self.simulation_button = customtkinter.CTkButton(
-            self.mission_type_frame, text="Simulation", command=self.start_simulation
-        )
-        self.simulation_button.pack(pady=10)
-
-        self.real_mission_button = customtkinter.CTkButton(
-            self.mission_type_frame, text="Real Mission", command=self.start_real_mission
-        )
-        self.real_mission_button.pack(pady=10)
-
-        self.info_label = customtkinter.CTkLabel(
-            self.mission_type_frame,
-            text="*Simulation mode allows for the placement of predefined targets\n to replace the detection of objects from onboard drone CV.",
-            font=("Arial", 10),
-            text_color="gray"
-        )
-        self.info_label.pack(pady=10)
-
-        self.back_button = customtkinter.CTkButton(
-            self.mission_type_frame, text="Back", command=self.show_initial_menu, width=80
-        )
-        self.back_button.pack(pady=20)
-
-        # Show initial menu by default
-        self.initial_menu_frame.pack()
-
-    def show_mission_type_selection(self):
-        """Hide initial menu and show mission type selection."""
-        self.initial_menu_frame.pack_forget()
-        self.mission_type_frame.pack()
-
-    def show_initial_menu(self):
-        """Hide mission type selection and show initial menu."""
-        self.mission_type_frame.pack_forget()
-        self.initial_menu_frame.pack()
+        info_label.setStyleSheet("font-size: 11px; color: #888888;")
+        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
 
     def start_simulation(self):
         """Start a simulation mission."""
@@ -77,4 +77,5 @@ class HomePage(customtkinter.CTkFrame):
 
     def start_real_mission(self):
         """Start a real mission."""
+        self.gui_ref.isSimulation = False
         self.gui_ref.show_map_page()
