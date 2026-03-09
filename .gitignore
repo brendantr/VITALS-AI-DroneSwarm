@@ -16,6 +16,7 @@
 *.avi
 *.data
 *.json
+!schemas/**/*.json
 *.cfg
 !setup.cfg
 !cfg/yolov3*.cfg
@@ -262,3 +263,5 @@ fabric.properties
 
 # Copilot Teehee
 copilot-instructions.md
+
+chroma_data/
