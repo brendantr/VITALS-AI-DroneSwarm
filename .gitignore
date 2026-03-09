@@ -265,3 +265,13 @@ fabric.properties
 copilot-instructions.md
 
 chroma_data/
+
+# Runtime data artifacts
+*.db
+*.parquet
+app/agent_b/data/
+app/temp.zip
+temp.zip
+
+# Mission session data
+app/missions/
