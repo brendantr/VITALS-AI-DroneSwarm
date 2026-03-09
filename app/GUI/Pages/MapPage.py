@@ -4,7 +4,7 @@ import tkintermapview
 import PIL.Image
 import PIL.ImageTk
 
-from Agent_D.OSM_Database.ingestion.check_internet import has_internet
+from Utils.check_internet import has_internet
 from GUI.Entities.Drone import Drone
 from models.jobs.job import Job
 from GUI.Entities.POI import POI

@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2100" height="1300" viewBox="0 0 2100 1300" role="img" aria-label="Agent D to vitals_tile_grid.sql workflow">
+  <defs>
+    <style>
+      .title { font: 700 44px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 22px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #334155; }
+      .h { font: 700 24px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
+      .t { font: 500 18px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #1e293b; }
+      .s { font: 500 16px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #334155; }
+      .small { font: 500 14px 'Inter', 'Segoe UI', Arial, sans-serif; fill: #475569; }
+      .box { stroke: #0f172a; stroke-width: 2; rx: 18; ry: 18; }
+      .arrow { stroke: #0f172a; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .lane { stroke: #cbd5e1; stroke-width: 2; stroke-dasharray: 8 8; fill: #f8fafc; }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L12,6 L0,12 z" fill="#0f172a"/>
+    </marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#eff6ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="2100" height="1300" fill="url(#bg)"/>
+
+  <text x="70" y="78" class="title">Agent D ↔ vitals_tile_grid.sql Workflow</text>
+  <text x="70" y="116" class="subtitle">Only the SQL file behavior and how Agent D calls it and receives output</text>
+
+  <rect x="60" y="160" width="1980" height="220" class="lane"/>
+  <rect x="60" y="410" width="1980" height="410" class="lane"/>
+  <rect x="60" y="850" width="1980" height="390" class="lane"/>
+
+  <text x="85" y="195" class="h">1) Agent D Call Path</text>
+  <text x="85" y="445" class="h">2) What vitals_tile_grid.sql Does</text>
+  <text x="85" y="885" class="h">3) SQL Output Returned to Agent D</text>
+
+  <!-- Agent D call path -->
+  <rect x="120" y="220" width="520" height="120" class="box" fill="#dbeafe"/>
+  <text x="145" y="258" class="h">Agent D (Python)</text>
+  <text x="145" y="286" class="t">query_tile_counts_4326(polygon_points, tile_size_m)</text>
+  <text x="145" y="314" class="s">builds polygon WKT and executes SQL query</text>
+
+  <rect x="700" y="220" width="580" height="120" class="box" fill="#e0f2fe"/>
+  <text x="725" y="258" class="h">SQL Statement Executed</text>
+  <text x="725" y="286" class="t">SELECT ... FROM vitals.get_tile_counts_4326(:polygon_wkt, :tile_size_m)</text>
+  <text x="725" y="314" class="s">run over Postgres/PostGIS connection</text>
+
+  <rect x="1340" y="220" width="640" height="120" class="box" fill="#dcfce7"/>
+  <text x="1365" y="258" class="h">SQL File Entry Points</text>
+  <text x="1365" y="286" class="t">vitals.classify_highway(text)</text>
+  <text x="1365" y="314" class="t">vitals.get_tile_counts_4326(polygon_wkt_4326, tile_size_m)</text>
+
+  <line x1="640" y1="280" x2="700" y2="280" class="arrow"/>
+  <line x1="1280" y1="280" x2="1340" y2="280" class="arrow"/>
+
+  <!-- SQL internals -->
+  <rect x="120" y="500" width="440" height="110" class="box" fill="#ede9fe"/>
+  <text x="145" y="538" class="h">Input Geometry Prep</text>
+  <text x="145" y="566" class="t">mission: ST_GeomFromText(..., 4326)</text>
+  <text x="145" y="592" class="s">mission_3857: ST_Transform(..., 3857)</text>
+
+  <rect x="620" y="500" width="500" height="110" class="box" fill="#ede9fe"/>
+  <text x="645" y="538" class="h">Grid Generation</text>
+  <text x="645" y="566" class="t">generate_series(x/y bounds, tile_size_m)</text>
+  <text x="645" y="592" class="s">ST_MakeEnvelope -> tile_3857 + x_idx/y_idx</text>
+
+  <rect x="1180" y="500" width="400" height="110" class="box" fill="#ede9fe"/>
+  <text x="1205" y="538" class="h">Tile Filter</text>
+  <text x="1205" y="566" class="t">keep tiles intersecting mission area</text>
+  <text x="1205" y="592" class="s">ST_Intersects(tile_3857, mission_geom_3857)</text>
+
+  <line x1="560" y1="555" x2="620" y2="555" class="arrow"/>
+  <line x1="1120" y1="555" x2="1180" y2="555" class="arrow"/>
+
+  <rect x="120" y="650" width="450" height="130" class="box" fill="#fee2e2"/>
+  <text x="145" y="688" class="h">Count Buildings</text>
+  <text x="145" y="716" class="t">planet_osm_polygon where building IS NOT NULL</text>
+  <text x="145" y="742" class="s">per-tile intersection count</text>
+
+  <rect x="620" y="650" width="450" height="130" class="box" fill="#dbeafe"/>
+  <text x="645" y="688" class="h">Count Water</text>
+  <text x="645" y="716" class="t">planet_osm_polygon where water IS NOT NULL</text>
+  <text x="645" y="742" class="s">per-tile intersection count</text>
+
+  <rect x="1120" y="650" width="460" height="130" class="box" fill="#dcfce7"/>
+  <text x="1145" y="688" class="h">Count Roads and Paths</text>
+  <text x="1145" y="716" class="t">planet_osm_line where highway IS NOT NULL</text>
+  <text x="1145" y="742" class="s">classify_highway() splits highway vs pedestrian_path</text>
+
+  <line x1="1380" y1="610" x2="345" y2="650" class="arrow"/>
+  <line x1="1380" y1="610" x2="845" y2="650" class="arrow"/>
+  <line x1="1380" y1="610" x2="1350" y2="650" class="arrow"/>
+
+  <!-- Return path -->
+  <rect x="120" y="940" width="720" height="180" class="box" fill="#e2e8f0"/>
+  <text x="145" y="978" class="h">Function Output Row (per tile)</text>
+  <text x="145" y="1006" class="t">x_idx, y_idx, tile_wkt_4326, centroid_lon, centroid_lat</text>
+  <text x="145" y="1034" class="t">building_count, water_count, highway_count, pedestrian_path_count</text>
+  <text x="145" y="1062" class="s">rows are fetched by query_tile_counts_4326()</text>
+
+  <rect x="900" y="940" width="560" height="180" class="box" fill="#c7d2fe"/>
+  <text x="925" y="978" class="h">Agent D Parsing</text>
+  <text x="925" y="1006" class="t">convert tile_wkt_4326 -> Shapely polygon</text>
+  <text x="925" y="1034" class="t">assemble counts dict + total_count</text>
+  <text x="925" y="1062" class="s">produce Python tile rows list</text>
+
+  <rect x="1520" y="940" width="520" height="180" class="box" fill="#bfdbfe"/>
+  <text x="1545" y="978" class="h">Agent D Receives Usable Output</text>
+  <text x="1545" y="1006" class="t">[{x_idx, y_idx, tile_polygon, centroid, counts, total_count}, ...]</text>
+  <text x="1545" y="1034" class="t">used to build grid tiles for cost-map/pathing pipeline</text>
+  <text x="1545" y="1062" class="s">this is the SQL→Python handoff boundary</text>
+
+  <line x1="570" y1="780" x2="480" y2="940" class="arrow"/>
+  <line x1="1070" y1="1030" x2="1460" y2="1030" class="arrow"/>
+  <line x1="840" y1="1030" x2="900" y2="1030" class="arrow"/>
+
+  <text x="70" y="1270" class="small">File focus: /repo/app/Agent/Agent_D/OSM_Database/sql/vitals_tile_grid.sql and Agent D call/response only.</text>
+</svg>
