@@ -1,44 +1,227 @@
-1. Create docker volume 
+================================================================================
+  VITALS — OpenStreetMap Tile Server & PostGIS Setup Guide
+================================================================================
 
-docker volume create osm-data
+This guide sets up a local OpenStreetMap tile server using Docker.  The server
+provides two things the VITALS app needs:
 
-2. Importing PBF
+  1.  Offline map tiles   → served on http://localhost:8080
+  2.  PostGIS database    → accessible on localhost:5432
+      (used by TerrainPreProcessing to query buildings, water, roads, etc.)
 
-docker run -v C:\Users\Banka\Downloads\us-south-latest.osm.pbf:/data/region.osm.pbf -v osm-data:/data/database/ overv/openstreetmap-tile-server import
+--------------------------------------------------------------------------------
+PREREQUISITES
+--------------------------------------------------------------------------------
 
-3. Creating Tile Partition
+  • Docker Desktop installed and running
+    https://www.docker.com/products/docker-desktop
 
-docker volume create osm-tiles
-docker run -p 8080:80 -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ -d overv/openstreetmap-tile-server run
+  • Download an OpenStreetMap PBF extract for your region of interest.
+    Recommended sources (Geofabrik):
 
-4. Running the server
+    Florida only (~350 MB, faster import — good for testing):
+      https://download.geofabrik.de/north-america/us/florida-latest.osm.pbf
 
-docker run --rm -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+    Full US South (~1.5–2 GB, full coverage):
+      https://download.geofabrik.de/north-america/us-south-latest.osm.pbf
 
+    Browse all regions:
+      https://download.geofabrik.de/
 
+  ⚠️  IMPORTANT — Luxembourg fallback warning:
+  If the Docker import command cannot find the PBF file at the path you provide,
+  it will NOT fail with an error. Instead it silently downloads and imports
+  Luxembourg (a tiny European country) as a default example. You will see this
+  message in the logs:
 
+      "WARNING: No import file at /data/region.osm.pbf, so importing
+       Luxembourg as example..."
 
-This stuff not needed
+  If you see that message, STOP — your file path is wrong. Fix it and re-import.
 
-Run the docker, and expose postGIS, with the password being mysecretpassword
-docker run -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -e POSTGRES_PASSWORD=mysecretpassword -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+--------------------------------------------------------------------------------
+STEP 1 — Create Docker Volumes
+--------------------------------------------------------------------------------
 
+  docker volume create osm-data
+  docker volume create osm-tiles
 
-docker run -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -e POSTGRES_USER=myuser -e POSTGRES_PASSWORD=mysecretpassword -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+  • osm-data  — holds the imported PostGIS database (all OSM features)
+  • osm-tiles — caches rendered map tile images for faster repeated access
 
+--------------------------------------------------------------------------------
+STEP 2 — Import PBF Data
+--------------------------------------------------------------------------------
 
+Replace <PATH_TO_PBF_FILE> with the full path to your downloaded .osm.pbf file.
 
-docker run -p 8080:80 -e THREADS=24 -v osm-data:/data/database/ --shm-size="16g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+  Windows (CMD / PowerShell):
+  ─────────────────────────────────────────────────────────────────────────────
+  docker run -v "C:/Users/YourName/Downloads/florida-latest.osm.pbf:/data/region.osm.pbf" -v osm-data:/data/database/overv/openstreetmap-tile-server import
 
+  Notes:
+  • Use forward slashes (/) in the path, even on Windows.
+  • The file name must match exactly (case-sensitive).
+  • Import time depends on file size and hardware:
+      Florida (~350 MB)  →  ~30–60 minutes
+      US South (~2 GB)   →  ~1–3 hours
+  • When the import finishes successfully the container exits with code 0.
+    Check with:  docker ps -a  (look for "Exited (0)")
 
-docker run -p 8080:80 -e THREADS=32 -e CACHE_SIZE=8000 -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="32g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+  How to confirm the import did NOT fall back to Luxembourg:
+  ─────────────────────────────────────────────────────────────────────────────
+  docker logs <import_container_id>
 
+  ✅ Good — you should see: "Importing /data/region.osm.pbf"
+  ❌ Bad  — if you see:     "WARNING: No import file at /data/region.osm.pbf"
+            then your volume mount path is wrong. Fix it and re-import.
 
+--------------------------------------------------------------------------------
+STEP 3 — Run the Tile Server
+--------------------------------------------------------------------------------
 
+  docker run \
+    -p 8080:80 \
+    -p 5432:5432 \
+    -e THREADS=24 \
+    -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" \
+    -e BACKGROUND_RENDERING=true \
+    -v osm-data:/data/database/ \
+    -v osm-tiles:/data/tiles/ \
+    --shm-size="8g" \
+    --cpus="10.0" \
+    -d overv/openstreetmap-tile-server run
 
-docker run -p 8080:80 -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="16g" -d overv/openstreetmap-tile-server run
+  What each flag does:
+  ─────────────────────────────────────────────────────────────────────────────
+  -p 8080:80           Map tile HTTP server on http://localhost:8080
+  -p 5432:5432         PostGIS database on localhost:5432
+  -e THREADS=24        Number of rendering threads (adjust to your CPU cores)
+  -e BACKGROUND_RENDERING=true   Pre-render tiles in the background
+  --shm-size="8g"      Shared memory for PostgreSQL (increase if you have RAM)
+  --cpus="10.0"        Limit CPU usage (adjust to your machine)
+  -d                   Run in detached (background) mode
 
-docker run -p 8080:80 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+  ⚠️  The -p 5432:5432 flag is REQUIRED for the VITALS app to query PostGIS.
+      Without it, TerrainPreProcessing will get "connection refused" errors.
 
+  For Windows CMD, replace the backslashes (\) with carets (^).
 
-docker run -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+--------------------------------------------------------------------------------
+STEP 4 — Verify Everything Works
+--------------------------------------------------------------------------------
+
+  4a. Check the container is running:
+  ─────────────────────────────────────────────────────────────────────────────
+  docker ps
+
+  You should see a container with IMAGE "overv/openstreetmap-tile-server" and
+  PORTS showing "0.0.0.0:8080->80/tcp, 0.0.0.0:5432->5432/tcp".
+
+  4b. Check tile server in browser:
+  ─────────────────────────────────────────────────────────────────────────────
+  Open http://localhost:8080
+
+  Then zoom into a city in your PBF region (e.g., Orlando, Miami, Houston).
+  Tiles render on demand — zoom to level 14+ and wait a few seconds.
+
+  Test a specific tile (Cape Canaveral area):
+    http://localhost:8080/tile/14/4526/6648.png
+
+  4c. Check PostGIS has data:
+  ─────────────────────────────────────────────────────────────────────────────
+  docker exec -it <container_id> psql -h localhost -U renderer -d gis \
+    -c "SELECT count(*) FROM planet_osm_polygon;"
+
+  Should return a count > 0.  (Use -h localhost to avoid peer auth errors.)
+
+  4d. Verify the correct geographic region was imported:
+  ─────────────────────────────────────────────────────────────────────────────
+  docker exec -it <container_id> psql -h localhost -U renderer -d gis -c "
+    SELECT
+      ST_XMin(ST_Transform(ST_SetSRID(ST_Extent(way),3857),4326)) as min_lon,
+      ST_YMin(ST_Transform(ST_SetSRID(ST_Extent(way),3857),4326)) as min_lat,
+      ST_XMax(ST_Transform(ST_SetSRID(ST_Extent(way),3857),4326)) as max_lon,
+      ST_YMax(ST_Transform(ST_SetSRID(ST_Extent(way),3857),4326)) as max_lat
+    FROM planet_osm_polygon;"
+
+  Expected results:
+    Florida:    Lat ~24 to ~31,  Lon ~-88 to ~-79
+    US South:   Lat ~24 to ~39,  Lon ~-106 to ~-75
+    Luxembourg: Lat ~49 to ~50,  Lon ~5 to ~7   ← WRONG — re-import!
+
+--------------------------------------------------------------------------------
+MANAGING THE SERVER
+--------------------------------------------------------------------------------
+
+  Stop the container:
+    docker stop <container_id>
+
+  Restart the container:
+    docker restart <container_id>
+
+  Start fresh (delete all data and re-import):
+    docker stop <container_id>
+    docker rm <container_id>
+    docker volume rm osm-data osm-tiles
+    docker volume create osm-data
+    docker volume create osm-tiles
+    (then repeat Steps 2 and 3)
+
+  View server logs:
+    docker logs -f <container_id>
+
+--------------------------------------------------------------------------------
+TROUBLESHOOTING
+--------------------------------------------------------------------------------
+
+  Problem                              Fix
+  ─────────────────────────────────    ──────────────────────────────────────
+  Luxembourg imported instead of       PBF file path is wrong. Check the
+  your target region                   volume mount path, use forward
+                                       slashes, and verify the file exists.
+                                       Re-import after fixing (see above).
+
+  "Peer authentication failed          Use -h localhost in the psql command
+  for user renderer"                   to force TCP instead of Unix socket:
+                                       psql -h localhost -U renderer -d gis
+
+  Port 8080 already in use             Change to another port:
+                                       -p 9090:80 (then use localhost:9090)
+
+  Port 5432 already in use             Stop local PostgreSQL first, or use:
+                                       -p 5433:5432 (update connection
+                                       strings in postgis_handler.py)
+
+  Map tiles are blank at               Tiles render on demand. Zoom into a
+  localhost:8080                        specific city at zoom 14+. Background
+                                       rendering takes time for large areas.
+
+  "PostGIS returned no features"       Wrong PBF region was imported.
+  in the VITALS app                    Run the geographic extent query in
+                                       Step 4d to check. Re-import the
+                                       correct PBF file.
+
+  Connection refused on port 5432      Container was not started with the
+                                       -p 5432:5432 flag. Stop and re-run
+                                       Step 3 with the flag included.
+
+  Import exited with non-zero code     Check logs: docker logs <container_id>
+                                       Common cause: not enough disk space
+                                       or RAM for large PBF files.
+
+--------------------------------------------------------------------------------
+CONNECTION DETAILS FOR VITALS APP
+--------------------------------------------------------------------------------
+
+  The VITALS app (postgis_handler.py) connects to PostGIS using:
+
+    postgresql://renderer:renderer@localhost:5432/gis
+
+  This is the default connection built into the tile server Docker image.
+  No password configuration is needed.
+
+  To override, set the environment variable before running the app:
+    VITALS_POSTGIS_URL=postgresql://renderer:renderer@localhost:5432/gis
+
+================================================================================

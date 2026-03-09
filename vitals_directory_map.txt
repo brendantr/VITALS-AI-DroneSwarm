@@ -1,0 +1,76 @@
+Vitals directory structure. Folders are marked with "-" in front of name. 
+Files have no markings and are just named as is. Root folder is "app".
+
+
+app
+	-assets
+		camera-drone.png
+		gcs.png
+		send.png
+	-cache
+	-ComputerVison
+		-__pycache__
+		-CVModels
+		-temp
+		__init__.py
+		objectDetection.py
+	-Dispatcher
+		-__pycache__
+		__init__.py
+		Dispatcher.py
+	-GUI
+		-__pycache__
+		-Entities
+			-__pycache__
+			__init__.py
+			Drone.py
+			Job.py
+			POI.py
+		-Pages
+			-__pycache__
+			__init__.py
+			Homepage.py
+			MapPage.py
+		-Widgets
+			-__pycache__
+			__init__.py
+			ChatSideBar.py
+			DroneWidgets.py
+			POIWidgets.py
+		__init__.py
+		GUI.py
+	-LangGraph
+		-__pycache__
+		__init__.py
+		langChainMain.py
+		langChaintest.py
+		langGraphMain.py
+	-missions
+	-PathPlanning
+		-__pycache__
+		path.py
+	-TerrainPreProcessing
+		-__pycache__
+		__init__.py
+		check_internet.py
+		DockerCommands.txt
+		geometry_utils.py
+		osmnx_handler.py
+		postgis_handler.py
+		query_disambiguation.py
+		terrain_queries.py
+		test.py
+		visualization.py
+		visualizationsave.py
+	-Utils
+		-__pycache__
+		__init__.py
+		coordinate_estimation.py
+	missionState.py
+	README.md
+	requirements.txt
+	temp.zip
+	
+		
+		
+	

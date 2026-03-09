@@ -1,0 +1,53 @@
+# Running QGroundControl with Gazebo (PX4 SITL)
+
+## Prerequisites (Linux/WSL2 Ubuntu recommended)
+- QGroundControl AppImage downloaded (https://qgroundcontrol.com/)
+
+## Setup (run in a terminal)
+- AppImage permission:
+    sudo apt update
+    sudo apt install gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl -y
+    sudo apt install libfuse2 -y
+    sudo apt install libxcb-xinerama0 libxkbcommon-x11-0 libxcb-cursor-dev -y
+    sudo apt install python3-tk
+
+    chmod +x ../Downloads/QGroundControl-x86_64.AppImage
+    
+
+- PX4 + Gazebo dependencies (Ubuntu/WSL2):
+    git clone --recursive https://github.com/PX4/PX4-Autopilot.git
+    bash PX4-Autopilot/Tools/setup/ubuntu.sh
+    # Close and reopen terminal or:
+    source ~/.bashrc
+
+## Start QGroundControl (keep it running)
+1) ./QGroundControl-x86_64.AppImage
+
+## Start Gazebo with PX4 SITL (from PX4-Autopilot repo root)
+2) make px4_sitl gz_x500
+     # Optional headless mode:
+     # HEADLESS=1 make px4_sitl gz_x500
+
+## Start VITALS using Docker compose
+1) cd /path/to/VITALS/app
+2) git pull
+3) docker compose pull
+4) docker compose up
+
+Connection notes
+- QGroundControl usually auto-connects on UDP 14550.
+- If no vehicle appears, add a manual UDP link:
+    QGC -> Application Settings -> Comm Links -> Add -> Type: UDP, Port: 14540, Host: 127.0.0.1
+
+Verify
+- Gazebo launches an X500 model.
+- QGC shows a connected vehicle and telemetry.
+
+Stop
+- Ctrl+C in the terminal running PX4/Gazebo.
+- Quit QGroundControl.
+
+Troubleshooting
+- If Gazebo fails to start: ensure Gazebo (Garden/Harmonic) is installed and on PATH (`gz sim --version`).
+- If AppImage doesn’t run: install libfuse2; run `./QGroundControl-x86_64.AppImage --no-sandbox` if needed.
+- Allow UDP traffic in firewall (ports 14540–14550).

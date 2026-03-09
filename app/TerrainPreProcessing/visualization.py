@@ -1,7 +1,6 @@
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString
 
 from .geometry_utils import haversine
-from .query_disambiguation import disambiguate
 import matplotlib.colors as mcolors
 import numpy as np
 import geopandas as gpd
@@ -17,6 +16,40 @@ import matplotlib.patches as patches
 import matplotlib.collections as col
 import random
 import matplotlib.animation as animation
+
+
+def _classify_highway(highway_value):
+    if not highway_value:
+        return "unknown"
+
+    highway_value = str(highway_value).lower()
+
+    if highway_value in {"highway", "pedestrian_path"}:
+        return highway_value
+
+    road_tags = {
+        "motorway", "trunk", "primary", "secondary", "tertiary",
+        "residential", "unclassified", "service", "living_street",
+    }
+    pedestrian_tags = {
+        "footway", "path", "track", "bridleway", "pedestrian", "cycleway",
+    }
+
+    if highway_value in road_tags:
+        return "highway"
+    if highway_value in pedestrian_tags:
+        return "pedestrian_path"
+
+    # Default unknowns to road, consistent with prior behavior.
+    return "highway"
+
+
+def disambiguate(tag_type, value):
+    if tag_type == "highway":
+        return _classify_highway(value)
+
+    # Preserve prior behavior: non-highway tags collapse to their key.
+    return tag_type
 
 class Drone_Path_Navigator:
     def __init__(self, interactive : "Interactive_Visualization"):
@@ -220,8 +253,10 @@ class Interactive_Visualization:
         grid_ax = self.ax
         plt.xticks(rotation=45)  
         for i in range(len(grid)):
-            for j in range(len(grid)):
+            for j in range(len(grid[0])):
                 tile = grid[i][j]
+                if tile is None or getattr(tile, "polygon", None) is None:
+                    continue
                 if self.tile_length is None:
                     exterior_coords = list(tile.polygon.exterior.coords)
                     first,second = exterior_coords[:2]
@@ -652,8 +687,10 @@ def plot_postGIS_data(rtree_index, grid = None, search_points = [], colors = {},
         grid_ax.set_picker(False)
         layer_list["grid"] = grid_ax
         for i in range(len(grid)):
-            for j in range(len(grid)):
+            for j in range(len(grid[0])):
                 tile = grid[i][j]
+                if tile is None or getattr(tile, "polygon", None) is None:
+                    continue
                 if tile_length is None:
                     exterior_coords = list(tile.polygon.exterior.coords)
                     first,second = exterior_coords[:2]

@@ -1,0 +1,1 @@
+docker run -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="10.0" -d overv/openstreetmap-tile-server run

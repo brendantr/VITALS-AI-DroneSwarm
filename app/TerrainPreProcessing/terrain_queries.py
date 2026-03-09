@@ -1,12 +1,69 @@
 from .geometry_utils import find_extreme_coordinates, rectangle_side_lengths, add_meters_to_latitude, add_meters_to_longitude, Tile
 from .osmnx_handler import osmnx_load_rtree
-from .postgis_handler import query_osm_features, postgis_load_rtree,query_osm_features_all
+from .postgis_handler import query_osm_features, postgis_load_rtree,query_osm_features_all, query_tile_counts_4326
 from .visualization import plot_postGIS_data, plot_search_area
 from .check_internet import has_internet
 from rtree import index
 from shapely import Polygon
 import osmnx as ox
 import pandas as pd
+
+
+def _build_grid_from_tile_counts(tile_rows, search_tags):
+    """Convert PostGIS tile-count rows into a Tile[][] plus viable positions.
+
+    The SQL function returns only tiles intersecting the mission polygon.
+    We build a dense 2D grid sized to (max y_idx, max x_idx) and fill gaps with
+    placeholder Tiles marked as not in the search area.
+    """
+    if not tile_rows:
+        return None, None
+
+    max_x = max(int(r.get("x_idx", 0)) for r in tile_rows)
+    max_y = max(int(r.get("y_idx", 0)) for r in tile_rows)
+    width = max_x + 1
+    height = max_y + 1
+
+    grid = [[Tile() for _ in range(width)] for _ in range(height)]
+    viable = []
+
+    for y in range(height):
+        for x in range(width):
+            tile = grid[y][x]
+            tile.contains_count = {tag: 0 for tag in search_tags}
+            tile.contains = {tag: [] for tag in search_tags}
+            tile.total_count = 0
+            tile.in_searcharea = False
+            tile.polygon = None
+
+    for row in tile_rows:
+        x = int(row.get("x_idx", 0))
+        y = int(row.get("y_idx", 0))
+        tile = grid[y][x]
+
+        counts = row.get("counts", {})
+        building_ct = int(counts.get("building", 0))
+        water_ct = int(counts.get("water", 0))
+        highway_ct = int(counts.get("highway", 0))
+        ped_ct = int(counts.get("pedestrian_path", 0))
+
+        tile.polygon = row.get("tile_polygon")
+        tile.in_searcharea = True
+
+        if "building" in tile.contains_count:
+            tile.contains_count["building"] = building_ct
+        if "water" in tile.contains_count:
+            tile.contains_count["water"] = water_ct
+
+        if "highway" in tile.contains_count:
+            tile.contains_count["highway"] = highway_ct + ped_ct
+            # Populate bucketed values so visualization's per-value coloring works.
+            tile.contains["highway"] = (["highway"] * highway_ct) + (["pedestrian_path"] * ped_ct)
+
+        tile.total_count = int(row.get("total_count", building_ct + water_ct + highway_ct + ped_ct))
+        viable.append((y, x))
+
+    return grid, viable
 
 
     
@@ -104,19 +161,29 @@ def create_search_area(polygon_points, search_tags, useOSMX = True,maximum_squar
 
     osmnx_points = (*bottom_left[::-1], *top_right[::-1])
     postGIS_points = [(lat,lon) for lon,lat in polygon_points]
-    #gather the data from osmnx
-    #results = ox.features_from_bbox(points,search_tags)
-    #results.plot()
     rtree_index = index.Index()
-    #osmnx_load_rtree(rtree_index,search_tags,results)
-    success = get_features(rtree_index, useOSMX, osmnx_points,postGIS_points, search_tags)
 
+    # 1) Always try to load geometry features for visualization (OSMnx or PostGIS).
+    success = get_features(rtree_index, useOSMX, osmnx_points, postGIS_points, search_tags)
     if not success:
         print("unable to create a search area")
-        return None,None,None
+        return None, None, None
 
+    # 2) If we're using PostGIS (either explicitly or after fallback), ask PostGIS
+    #    to generate the grid + counts directly.
+    using_postgis = not useOSMX
+    if using_postgis:
+        try:
+            tile_rows = query_tile_counts_4326(postGIS_points, tile_size_m=int(round(square_size)))
+            db_grid, viable_grid_positions = _build_grid_from_tile_counts(tile_rows, search_tags)
+            if db_grid is not None:
+                return rtree_index, db_grid, viable_grid_positions
+        except Exception as e:
+            print(f"PostGIS tile-counts path failed; falling back to Python counting. Error: {e}")
+
+    # 3) Default/legacy path: Python computes tile counts by intersecting R-tree
+    #    results per tile. (Still works even when geometry was sourced from PostGIS.)
     viable_grid_positions = fill_grid_data(rtree_index, grid, top_left, square_size, search_tags, postGIS_points)
-
     return rtree_index, grid, viable_grid_positions
     # Generate tiles and fetch OSM features
 
