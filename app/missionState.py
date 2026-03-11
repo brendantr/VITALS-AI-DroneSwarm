@@ -36,7 +36,7 @@ class Drone:
     active_job = None
     last_mission_state = None
     available = True
-    operatingAltitude = 10 # meters
+    operatingAltitude = 20 # meters
     visionModel = "rf3v1.pt"
 
     def __init__(self, missionState, drone_id, system_status, operatingAltitude):
@@ -266,7 +266,7 @@ class missionState:
         self.loop.run_until_complete(self.dispatcher.receive_packets())
 
     def addDrone(self, drone_id, system_status):
-        self.drones.append(Drone(self, drone_id, system_status, 10 + (5 * len(self.drones))))
+        self.drones.append(Drone(self, drone_id, system_status, 20 + (5 * len(self.drones))))
         self.drones.sort(key=lambda x: x.drone_id)
         self.gui.addDrone(drone_id, system_status)
 

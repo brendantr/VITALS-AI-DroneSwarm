@@ -5,6 +5,8 @@ import threading
 import time
 import math
 import traceback
+import glob
+import platform
 
 class mission_item:
     def __init__(self, seq, current, lat, lon, alt):
@@ -42,21 +44,33 @@ class Dispatcher:
         self.loop.run_forever()
 
     def connect(self):
-        connection_targets = [
-            "COM10",  # Direct serial connection to drone (57600 baud)
-            "tcp:127.0.0.1:14450",  # Mission Planner MAVLink Mirror (TCP)
-            "tcp:127.0.0.1:14550",  # QGroundControl forwarding (TCP)
-            "udp:127.0.0.1:14445",  # QGroundControl forwarding (UDP)
-            "udp:127.0.0.1:14550",  # Standard UDP port
-        ]
+        if platform.system().lower() == "windows":
+            connection_targets = [
+                "COM10",  # Direct serial connection to drone (57600 baud)
+                "tcp:127.0.0.1:14450",  # Mission Planner MAVLink Mirror (TCP)
+                "tcp:127.0.0.1:14550",  # QGroundControl forwarding (TCP)
+                "udp:127.0.0.1:14445",  # QGroundControl forwarding (UDP)
+                "udp:127.0.0.1:14550",  # Standard UDP port
+            ]
+        else:
+            serial_targets = sorted(glob.glob("/dev/cu.usbserial*")) + sorted(glob.glob("/dev/tty.usbserial*"))
+            serial_targets += sorted(glob.glob("/dev/cu.usbmodem*")) + sorted(glob.glob("/dev/tty.usbmodem*"))
+            connection_targets = serial_targets + [
+                "tcp:127.0.0.1:14450",  # Mission Planner MAVLink Mirror (TCP)
+                "tcp:127.0.0.1:14550",  # QGroundControl forwarding (TCP)
+                "udp:127.0.0.1:14445",  # QGroundControl forwarding (UDP)
+                "udp:127.0.0.1:14550",  # Standard UDP port
+            ]
+
+        print(f"MAVLink connection targets: {connection_targets}")
 
         for target in connection_targets:
             try:
                 # For serial connections, specify 57600 baud rate (RFD900x standard)
-                if target.startswith("COM"):
-                    self.master = mavutil.mavlink_connection(target, baud=57600, mavlink_version="2.0")
+                if target.startswith("COM") or target.startswith("/dev/"):
+                    self.master = mavutil.mavlink_connection(target, baud=57600, autoreconnect=False, mavlink_version="2.0")
                 else:
-                    self.master = mavutil.mavlink_connection(target, mavlink_version="2.0")
+                    self.master = mavutil.mavlink_connection(target, autoreconnect=False, mavlink_version="2.0")
                 
                 heartbeat = self.master.wait_heartbeat(timeout=5)
                 if not heartbeat:

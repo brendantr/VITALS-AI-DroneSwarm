@@ -2,6 +2,7 @@ import PIL.Image
 import customtkinter
 from concurrent.futures import ThreadPoolExecutor
 from LangGraph import langChainMain
+import re
 
 
 class ChatSidebar(customtkinter.CTkFrame):
@@ -132,27 +133,83 @@ class ChatSidebar(customtkinter.CTkFrame):
         user_message = self.input_field.get().strip()
         self.input_field.delete(0, "end")
 
+        def parse_quick_command(message):
+            normalized = re.sub(r"[^a-z0-9/\s]", " ", message.lower())
+            normalized = re.sub(r"\s+", " ", normalized).strip()
+
+            for prefix in ["please ", "can you ", "could you ", "vitals "]:
+                if normalized.startswith(prefix):
+                    normalized = normalized[len(prefix):].strip()
+
+            drone_match = re.search(r"(?:drone\s*)?(\d+)", normalized)
+            target_drone_id = int(drone_match.group(1)) if drone_match else None
+
+            land_keywords = [
+                "land",
+                "land now",
+                "land all",
+                "emergency land",
+                "land immediately",
+                "stop",
+                "stop now",
+                "abort",
+                "abort mission",
+                "/land",
+            ]
+            rtl_keywords = [
+                "rtl",
+                "rtl now",
+                "return",
+                "return to launch",
+                "go home",
+                "home",
+                "/rtl",
+            ]
+
+            if any(keyword in normalized for keyword in land_keywords):
+                return ("land", target_drone_id)
+            if any(keyword in normalized for keyword in rtl_keywords):
+                return ("rtl", target_drone_id)
+            return (None, None)
+
         if user_message:
             # Add user message bubble
             self.add_message_bubble(f"You: {user_message}", sender="user")
 
             # Check for direct emergency commands
-            msg_lower = user_message.lower()
-            if msg_lower in ["land", "land now", "land all", "emergency land", "stop", "stop now"]:
+            command, target_drone_id = parse_quick_command(user_message)
+            if command in ["land", "rtl"]:
                 drones = self.gui_ref.missionState.getDrones()
-                for drone in drones:
-                    self.gui_ref.missionState.land_drone(drone.drone_id)
-                self.add_message_bubble(f"Emergency: Landing all drones immediately!", sender="llm")
-                return
-            elif msg_lower in ["rtl", "return", "return to launch", "home"]:
-                drones = self.gui_ref.missionState.getDrones()
-                for drone in drones:
-                    self.gui_ref.missionState.call_drone_home(drone.drone_id)
-                self.add_message_bubble(f"Returning all drones to launch.", sender="llm")
+                if not drones:
+                    self.add_message_bubble("No active drones found to command.", sender="llm")
+                    return
+
+                if target_drone_id is not None:
+                    target_drones = [d for d in drones if int(d.drone_id) == int(target_drone_id)]
+                    if not target_drones:
+                        self.add_message_bubble(f"Drone {target_drone_id} not found.", sender="llm")
+                        return
+                else:
+                    target_drones = drones
+
+                if command == "land":
+                    for drone in target_drones:
+                        self.gui_ref.missionState.land_drone(drone.drone_id)
+                    if target_drone_id is not None:
+                        self.add_message_bubble(f"Emergency: Landing drone {target_drone_id} immediately!", sender="llm")
+                    else:
+                        self.add_message_bubble("Emergency: Landing all drones immediately!", sender="llm")
+                else:
+                    for drone in target_drones:
+                        self.gui_ref.missionState.call_drone_home(drone.drone_id)
+                    if target_drone_id is not None:
+                        self.add_message_bubble(f"Returning drone {target_drone_id} to launch.", sender="llm")
+                    else:
+                        self.add_message_bubble("Returning all drones to launch.", sender="llm")
                 return
 
             # Call the LLM with user input
-            polygon_points = self.master.get_polygon_points()
+            polygon_points = self.gui_ref.get_polygon_points()
             drones = self.gui_ref.missionState.getDrones()
             pois = self.gui_ref.missionState.getPOIs()
 
