@@ -1,4 +1,3 @@
-
 from pymavlink import mavutil
 import asyncio
 import threading
@@ -22,6 +21,9 @@ class mission_item:
 
 
 class Dispatcher:
+
+    # ── Initialization & Lifecycle ──────────────────────────────────────
+
     def __init__(self, missionState):
         self.master = None
         self.missionState = missionState
@@ -59,7 +61,13 @@ class Dispatcher:
                 self.master = None
 
         return False
-    
+
+    def shutdown(self):
+        """Cleanly stops the background event loop and thread."""
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        self.mission_thread.join()
+
+    # ── Core Event Loop ─────────────────────────────────────────────────
 
     async def receive_packets(self):
         """Continuously process MAVLink messages with minimal latency."""
@@ -133,17 +141,8 @@ class Dispatcher:
             if self.master:
                 self.master.close()
 
-    def clear_mission(self, drone_id):
-        self.master.target_system = drone_id
-        #self.master.waypoint_clear_all_send()
-    
-    def arm_drone(self, drone_id):
-        print(f"Arming drone {drone_id}")
-        print(f"target_component: {self.master.target_component}")
-        self.master.target_system = drone_id
-        self.master.set_mode(216)
-        self.master.arducopter_arm()
-    
+    # ── Mission Management ──────────────────────────────────────────────
+
     def send_mission(self, drone_id, waypoints):
         """Stop current mission and upload new waypoints for a specific drone."""
         if not self.master:
@@ -155,6 +154,56 @@ class Dispatcher:
             await self.upload_mission(drone_id, waypoints)
 
         asyncio.run_coroutine_threadsafe(mission_task(), self.loop)  # Run coroutine in separate event loop
+
+    async def start_mission(self, drone_id, takeoff_altitude=10):
+        drone = self.missionState.get_drone(drone_id)
+        takeoff_altitude = drone.operatingAltitude
+        if not drone:
+            print(f"Drone {drone_id} not found.")
+            return 
+        if drone.system_status == 3: #drone is grounded need to add takeoff
+            await  self.takeoff(drone_id, takeoff_altitude)
+            
+            return
+        # Set mode to AUTO
+        self.master.mav.set_mode_send(
+            drone_id,
+            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+            3  # AUTO mode
+        )
+        if not await self.wait_for_mode(drone_id, "AUTO"):
+            print(f"Mission aborted: Drone {drone_id} failed to switch to AUTO mode.")
+            return
+        # Start the mission
+        self.master.mav.command_long_send(
+            drone_id, 0,
+            mavutil.mavlink.MAV_CMD_MISSION_START,
+            0, 0, 0, 0, 0, 0, 0, 0
+        )
+
+    async def stop_current_mission(self, drone_id):
+        """Stop the current mission and set the drone to GUIDED mode."""
+        print(f"Stopping current mission for drone {drone_id}...")
+
+        # Switch to GUIDED mode (manual control to prevent mission resuming)
+        self.master.mav.set_mode_send(
+            drone_id,
+            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+            4  # GUIDED mode
+        )
+        
+        if not await self.wait_for_mode(drone_id, "GUIDED"):
+            print(f"Failed to switch drone {drone_id} to GUIDED mode before mission upload!")
+            return
+
+        # Clear current mission
+        print(f"Clearing current mission for drone {drone_id}...")
+        self.master.mav.mission_clear_all_send(drone_id, 0)
+        self.unhandled_clears.append(drone_id)
+
+        await asyncio.sleep(1)  # Allow time for mission clearing
+
+    # ── Mission Upload Protocol ─────────────────────────────────────────
 
     async def upload_mission(self, drone_id, waypoints):
         """Initiate mission upload using the correct MAVLink protocol."""
@@ -256,7 +305,6 @@ class Dispatcher:
             )
             print(f"Waypoint {index} sent to drone {drone_id}: {lat}, {lon}, {alt}")
 
-
     async def handle_mission_ack(self, drone_id, ack_type):
         """Handle final mission acknowledgment."""
         if drone_id in self.unhandled_clears:
@@ -269,73 +317,28 @@ class Dispatcher:
         else:
             print(f"Mission upload failed for drone {drone_id} with error code {ack_type}")
 
-    async def wait_for_arming(self, drone_id, timeout=10):
-        """Wait until the drone is armed before continuing."""
-        print(f"Waiting for drone {drone_id} to arm...")
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            msg = self.master.recv_match(type="HEARTBEAT", blocking=False)
-            if msg and msg.get_srcSystem() == drone_id:
-                if msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED:
-                    print(f"Drone {drone_id} is now armed!")
-                    return True
-            await asyncio.sleep(0.5)
-        print(f"Warning: Drone {drone_id} did not arm within timeout!")
-        return False
-    
-    async def wait_for_mode(self, drone_id, target_mode, timeout=10):
-        """Wait until the drone changes to the desired mode."""
-        print(f"Waiting for drone {drone_id} to switch to {target_mode} mode...")
-        start_time = time.time()
-        mode_mapping = {
-            "GUIDED": 4,
-            "AUTO": 3,
-            "LOITER": 5,
-            "RTL": 6
-        }
-        target_mode_id = mode_mapping.get(target_mode)
-        if target_mode_id is None:
-            print(f"Invalid target mode: {target_mode}")
-            return False
-        
-        while time.time() - start_time < timeout:
-            msg = self.master.recv_match(type="HEARTBEAT", blocking=False)
-            if msg and msg.get_srcSystem() == drone_id:
-                if msg.custom_mode == target_mode_id:
-                    print(f"Drone {drone_id} is now in {target_mode} mode!")
-                    return True
-            await asyncio.sleep(0.5)
-        print(f"Warning: Drone {drone_id} did not switch to {target_mode} mode within timeout!")
-        return False
+    def clear_mission(self, drone_id):
+        self.master.target_system = drone_id
+        #self.master.waypoint_clear_all_send()
 
-    async def start_mission(self, drone_id, takeoff_altitude=10):
-        drone = self.missionState.get_drone(drone_id)
-        takeoff_altitude = drone.operatingAltitude
-        if not drone:
-            print(f"Drone {drone_id} not found.")
-            return 
-        if drone.system_status == 3: #drone is grounded need to add takeoff
-            await  self.takeoff(drone_id, takeoff_altitude)
-            
+    def request_mission_list(self, drone_id):
+        """Request the mission list from the drone."""
+        if not self.master:
+            print(f"Cannot request mission list: MAVLink is not connected!")
             return
-        # Set mode to AUTO
-        self.master.mav.set_mode_send(
-            drone_id,
-            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-            3  # AUTO mode
-        )
-        if not await self.wait_for_mode(drone_id, "AUTO"):
-            print(f"Mission aborted: Drone {drone_id} failed to switch to AUTO mode.")
-            return
-        # Start the mission
-        self.master.mav.command_long_send(
-            drone_id, 0,
-            mavutil.mavlink.MAV_CMD_MISSION_START,
-            0, 0, 0, 0, 0, 0, 0, 0
-        )
 
-        
-    
+        print(f"Requesting mission list from drone {drone_id}...")
+        self.master.mav.mission_request_list_send(drone_id, 0)
+
+    # ── Drone Commands ──────────────────────────────────────────────────
+
+    def arm_drone(self, drone_id):
+        print(f"Arming drone {drone_id}")
+        print(f"target_component: {self.master.target_component}")
+        self.master.target_system = drone_id
+        self.master.set_mode(216)
+        self.master.arducopter_arm()
+
     #Handles arming and takeoff of drone when grounded
     async def takeoff(self, drone_id, altitude):
         """Send the takeoff command to the drone."""
@@ -386,9 +389,7 @@ class Dispatcher:
             await self.start_mission(drone_id)
         else:
             print(f"Drone {drone_id} is still climbing. Current altitude: {rel_alt}m, Target altitude: {target_alt}m.")
-        
 
-    
     def return_to_launch(self, drone_id):
         """Send the RTL command to the drone."""
         if not self.master:
@@ -404,49 +405,51 @@ class Dispatcher:
             0,  # No parameters needed
             0, 0, 0, 0, 0, 0
         )
+
+    # ── Utilities ───────────────────────────────────────────────────────
+
+    async def wait_for_arming(self, drone_id, timeout=10):
+        """Wait until the drone is armed before continuing."""
+        print(f"Waiting for drone {drone_id} to arm...")
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            msg = self.master.recv_match(type="HEARTBEAT", blocking=False)
+            if msg and msg.get_srcSystem() == drone_id:
+                if msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED:
+                    print(f"Drone {drone_id} is now armed!")
+                    return True
+            await asyncio.sleep(0.5)
+        print(f"Warning: Drone {drone_id} did not arm within timeout!")
+        return False
     
+    async def wait_for_mode(self, drone_id, target_mode, timeout=10):
+        """Wait until the drone changes to the desired mode."""
+        print(f"Waiting for drone {drone_id} to switch to {target_mode} mode...")
+        start_time = time.time()
+        mode_mapping = {
+            "GUIDED": 4,
+            "AUTO": 3,
+            "LOITER": 5,
+            "RTL": 6
+        }
+        target_mode_id = mode_mapping.get(target_mode)
+        if target_mode_id is None:
+            print(f"Invalid target mode: {target_mode}")
+            return False
+        
+        while time.time() - start_time < timeout:
+            msg = self.master.recv_match(type="HEARTBEAT", blocking=False)
+            if msg and msg.get_srcSystem() == drone_id:
+                if msg.custom_mode == target_mode_id:
+                    print(f"Drone {drone_id} is now in {target_mode} mode!")
+                    return True
+            await asyncio.sleep(0.5)
+        print(f"Warning: Drone {drone_id} did not switch to {target_mode} mode within timeout!")
+        return False
+
     def ack(self, keyword):
         """wait for the drone to acknowledge a command"""
         print(str(self.master.recv_match(type=keyword, blocking=True)))
-    
-    def request_mission_list(self, drone_id):
-        """Request the mission list from the drone."""
-        if not self.master:
-            print(f"Cannot request mission list: MAVLink is not connected!")
-            return
-
-        print(f"Requesting mission list from drone {drone_id}...")
-        self.master.mav.mission_request_list_send(drone_id, 0)
-
-
-    async def stop_current_mission(self, drone_id):
-        """Stop the current mission and set the drone to GUIDED mode."""
-        print(f"Stopping current mission for drone {drone_id}...")
-
-        # Switch to GUIDED mode (manual control to prevent mission resuming)
-        self.master.mav.set_mode_send(
-            drone_id,
-            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-            4  # GUIDED mode
-        )
-        
-        if not await self.wait_for_mode(drone_id, "GUIDED"):
-            print(f"Failed to switch drone {drone_id} to GUIDED mode before mission upload!")
-            return
-
-        # Clear current mission
-        print(f"Clearing current mission for drone {drone_id}...")
-        self.master.mav.mission_clear_all_send(drone_id, 0)
-        self.unhandled_clears.append(drone_id)
-
-        await asyncio.sleep(1)  # Allow time for mission clearing
-
-    def shutdown(self):
-        """Cleanly stops the background event loop and thread."""
-        self.loop.call_soon_threadsafe(self.loop.stop)
-        self.mission_thread.join()
-    
-   
 
 
 
