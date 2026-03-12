@@ -1,6 +1,6 @@
 from Agent_D.CostMaps.terrain_CostMap import find_extreme_coordinates, rectangle_side_lengths, add_meters_to_latitude, add_meters_to_longitude, Tile
 from Agent_D.OSM_Database.ingestion.osmnx_handler import osmnx_load_rtree
-from Agent_D.OSM_Database.postgis.postgis_handler import query_osm_features, postgis_load_rtree,query_osm_features_all
+from Agent_D.OSM_Database.postgis.postgis_handler import query_osm_features, postgis_load_rtree, query_osm_features_all, query_tile_counts_4326
 from Agent_D.Visualizer.visualization import plot_postGIS_data, plot_search_area
 from Agent_D.OSM_Database.ingestion.check_internet import has_internet
 from rtree import index
@@ -64,6 +64,102 @@ def get_features(rtree_index, useOSMNX: bool, osmnx_points, postGIS_points, sear
     
 
 
+def _try_sql_search_area(polygon_points, search_tags, tile_size_m):
+    """Try building the grid entirely via the SQL function vitals.get_tile_counts_4326.
+
+    Returns (rtree_index, grid, viable_grid_positions) on success, or None if
+    the SQL function is not installed or produces no results.
+    """
+    try:
+        results = query_tile_counts_4326(polygon_points, tile_size_m)
+    except Exception as e:
+        print(f"SQL tile query failed: {e}")
+        return None
+
+    if not results:
+        return None
+
+    # Determine grid dimensions from the SQL result indices.
+    max_x = max(r["x_idx"] for r in results)
+    max_y = max(r["y_idx"] for r in results)
+    n_cols = max_x + 1
+    n_rows = max_y + 1
+
+    grid = [[Tile() for _ in range(n_cols)] for _ in range(n_rows)]
+
+    # Index SQL rows by (y_idx, x_idx) for fast lookup.
+    sql_lookup = {(r["y_idx"], r["x_idx"]): r for r in results}
+
+    rtree_index = index.Index()
+    viable_grid_positions = []
+    rtree_id = 0
+
+    for i in range(n_rows):
+        for j in range(n_cols):
+            tile = grid[i][j]
+            tile.contains_count = {tag: 0 for tag in search_tags}
+            tile.contains = {tag: list() for tag in search_tags}
+            tile.total_count = 0
+
+            r = sql_lookup.get((i, j))
+            if r is None:
+                # Tile not returned by SQL -> outside the mission polygon.
+                tile.in_searcharea = False
+                continue
+
+            counts = r["counts"]
+            tile_polygon = r["tile_polygon"]
+            tile.polygon = tile_polygon
+            tile.in_searcharea = True
+
+            # Map SQL counts back to the search_tags expected by the rest of the code.
+            for tag in search_tags:
+                if tag == "building":
+                    cnt = counts.get("building", 0)
+                    tile.contains_count[tag] = cnt
+                    tile.contains[tag] = ["yes"] * cnt
+                    tile.total_count += cnt
+                elif tag == "water":
+                    cnt = counts.get("water", 0)
+                    tile.contains_count[tag] = cnt
+                    tile.contains[tag] = ["yes"] * cnt
+                    tile.total_count += cnt
+                elif tag == "highway":
+                    hw_cnt = counts.get("highway", 0)
+                    ped_cnt = counts.get("pedestrian_path", 0)
+                    total_hw = hw_cnt + ped_cnt
+                    tile.contains_count[tag] = total_hw
+                    tile.contains[tag] = (
+                        ["residential"] * hw_cnt + ["footway"] * ped_cnt
+                    )
+                    tile.total_count += total_hw
+                else:
+                    # Generic fallback: treat as a count under its own name.
+                    cnt = counts.get(tag, 0)
+                    tile.contains_count[tag] = cnt
+                    tile.contains[tag] = ["yes"] * cnt
+                    tile.total_count += cnt
+
+            viable_grid_positions.append((i, j))
+
+            # Populate the rtree so visualization still works.
+            centroid = r["centroid"]
+            feature = {
+                "osm_id": f"tile_{i}_{j}",
+                "geometry": tile_polygon,
+            }
+            for tag in search_tags:
+                if tile.contains_count.get(tag, 0) > 0:
+                    feature[tag] = tile.contains[tag][0]
+                else:
+                    feature[tag] = None
+            rtree_index.insert(rtree_id, tile_polygon.bounds, obj=feature)
+            rtree_id += 1
+
+    print(f"SQL path: built {n_rows}x{n_cols} grid with {len(viable_grid_positions)} viable tiles")
+    return rtree_index, grid, viable_grid_positions
+
+
 def create_search_area(polygon_points, search_tags, useOSMX = True,maximum_square_size = 60, minimum_grid_size = 8):
     extremes = find_extreme_coordinates(polygon_points)
 
@@ -93,12 +189,22 @@ def create_search_area(polygon_points, search_tags, useOSMX = True,maximum_squar
         temp = size/minimum_grid_size
         grid_length = minimum_grid_size
 
-    grid = [[Tile() for _ in range(grid_length)] for _ in range(grid_length)]
-
     square_size = temp
 
     print(f"Square Size (in metters): {square_size}")
 
+    # --- SQL-accelerated PostGIS path ---
+    # When not using OSMNX, try the SQL-based tile grid function first.
+    # This moves the expensive spatial joins + counting into PostgreSQL.
+    if not useOSMX or (useOSMX and not has_internet()):
+        if useOSMX and not has_internet():
+            print("No Internet! Attempting to use PostGIS database (SQL path)")
+        sql_result = _try_sql_search_area(polygon_points, search_tags, int(square_size))
+        if sql_result is not None:
+            return sql_result
+        print("SQL path unavailable, falling back to Python PostGIS path")
+
+    grid = [[Tile() for _ in range(grid_length)] for _ in range(grid_length)]
 
     bottom_left, top_right = (extremes["lowest_latitude"],extremes["leftmost_longitude"]),(extremes["highest_latitude"],extremes["rightmost_longitude"])
 

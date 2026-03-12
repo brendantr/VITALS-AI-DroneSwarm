@@ -27,7 +27,8 @@ def _get_postgis_url() -> str:
 
 
 def _sql_file_path() -> Path:
-    return Path(__file__).resolve().parent / "sql" / "vitals_tile_grid.sql"
+    # Go up from postgis/ to OSM_Database/ then into sql/
+    return Path(__file__).resolve().parent.parent / "sql" / "vitals_tile_grid.sql"
 
 
 def _vitals_tile_function_exists(conn) -> bool:
