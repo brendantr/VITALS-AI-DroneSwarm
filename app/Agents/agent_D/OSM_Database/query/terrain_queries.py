@@ -129,6 +129,8 @@ def _try_sql_search_area(polygon_points, search_tags, tile_size_m):
                     ped_cnt = counts.get("pedestrian_path", 0)
                     total_hw = hw_cnt + ped_cnt
                     tile.contains_count[tag] = total_hw
+                    # Use representative values that disambiguate() will
+                    # classify back into "highway" and "pedestrian_path".
                     tile.contains[tag] = (
                         ["residential"] * hw_cnt + ["footway"] * ped_cnt
                     )
@@ -143,7 +145,6 @@ def _try_sql_search_area(polygon_points, search_tags, tile_size_m):
             viable_grid_positions.append((i, j))
 
             # Populate the rtree so visualization still works.
-            centroid = r["centroid"]
             feature = {
                 "osm_id": f"tile_{i}_{j}",
                 "geometry": tile_polygon,
