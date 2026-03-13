@@ -1,4 +1,4 @@
-# TerrainPreProcessing SQL (PostGIS)
+# Agent D SQL (PostGIS)
 
 This folder contains SQL you can install into your PostGIS database so the **grid generation + feature counting** happens in PostgreSQL instead of Python.
 
@@ -33,7 +33,7 @@ Before installing, make sure your DB is a **PostGIS** database that contains OSM
 
 If you are in the repo root (so the file path resolves), run:
 
-- `docker exec -i <container> psql -U renderer -d gis < VITALS-AI-DroneSwarm/app/TerrainPreProcessing/sql/vitals_tile_grid.sql`
+- `docker exec -i <container> psql -U renderer -d gis < VITALS-AI-DroneSwarm/app/Agents/agent_D/sql/vitals_tile_grid.sql`
 
 Notes:
 - If your DB user/db differs, replace `renderer`/`gis`.
@@ -57,7 +57,7 @@ If `VITALS_POSTGIS_URL` is not set, the default is `postgresql://renderer:render
 
 If you have `psql` installed locally and the database port is exposed (usually 5432):
 
-- `psql -h localhost -p 5432 -U renderer -d gis -f VITALS-AI-DroneSwarm/app/TerrainPreProcessing/sql/vitals_tile_grid.sql`
+- `psql -h localhost -p 5432 -U renderer -d gis -f VITALS-AI-DroneSwarm/app/Agents/agent_D/OSM_Database/sql/vitals_tile_grid.sql`
 
 ## Quick sanity check
 
@@ -70,7 +70,6 @@ The second query expects WKT in EPSG:4326 where coordinates are `(lon lat)`.
 
 ## How the Python code uses this
 
-- If the app falls back to PostGIS (no internet) or you set `useOSMX=False`,
-  [TerrainPreProcessing/terrain_queries.py](../terrain_queries.py) will try `query_tile_counts_4326()`.
-- If the SQL function is installed, Python uses the DB-returned tiles/counts.
+- If the app falls back to PostGIS (no internet) or you set `useOSMX=False`, `terrain_queries.py` will try `query_tile_counts_4326()` first.
+- If the SQL function is installed, Python uses the DB-returned tiles/counts to build the grid directly.
 - If not installed, it automatically falls back to the old Python counting path.
