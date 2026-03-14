@@ -1,26 +1,54 @@
 from datetime import datetime
 import os
-import PIL.Image
-import PIL.ImageTk
-import customtkinter
+import sys
+import threading
 
-# Import from refactored modules
+from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QWidget, QVBoxLayout
+from PyQt6.QtCore import Qt, QObject, pyqtSignal
+from PyQt6.QtGui import QIcon
+
+from GUI.theme import DARK_THEME
 from GUI.Entities.Job import JobWaypoint
 from GUI.Pages.HomePage import HomePage
 from GUI.Pages.MapPage import MapPage
 
 
+class _Invoker(QObject):
+    """Thread-safe invoker: emits a signal to run a callable on the main thread."""
+    _sig = pyqtSignal(object)
+
+    def __init__(self):
+        super().__init__()
+        self._sig.connect(self._call, Qt.ConnectionType.QueuedConnection)
+
+    def _call(self, fn):
+        fn()
+
+    def invoke(self, fn):
+        self._sig.emit(fn)
+
+
 class GUI:
     def __init__(self):
-        #self.missionState = missionState
-        self.app = customtkinter.CTk()
-        self.app.title("VITALS DESKTOP APP")
-        self.app.geometry("1280x720")
+        self.app = QApplication(sys.argv)
+        self.app.setStyleSheet(DARK_THEME)
+
+        self.window = QMainWindow()
+        self.window.setWindowTitle("VITALS DESKTOP APP")
+        self.window.resize(1280, 720)
+
+        # Thread-safe invoker for MAVLink callbacks
+        self._invoker = _Invoker()
+
+        # Try to set window icon
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "assets", "lockheed_martin_logo.png")
+        if os.path.exists(icon_path):
+            self.window.setWindowIcon(QIcon(icon_path))
+
+        # State
         self.choosing_gcs_location = False
         self.gcs_location = None
-        self.gcs_marker = None
-        self.container = customtkinter.CTkFrame(self.app)
-        self.container.pack(fill="both", expand=True)
+        self.gcs_marker_id = None
 
         self.currentJobWaypoints = []
         self.currentJobPath = None
@@ -30,47 +58,90 @@ class GUI:
         self.has_centered_on_drone = False
 
         self.detection_points = []
-        self.detection_point_markers = []
+        self.detection_point_marker_ids = []
         self.isAddingDetectionPoints = False
 
-        # Create pages
-        self.home_page = HomePage(self.container, self)
-        self.map_page = MapPage(self.container, self.show_home_page, self)
+        # Page stack
+        self.stack = QStackedWidget()
+        self.window.setCentralWidget(self.stack)
 
-        # Show the home page initially
-        self.home_page.pack(fill="both", expand=True)
+        # Create pages
+        self.home_page = HomePage(self)
+        self.map_page = MapPage(self)
+
+        self.stack.addWidget(self.home_page)   # index 0
+        self.stack.addWidget(self.map_page)    # index 1
+
+        # Show home page initially
+        self.stack.setCurrentIndex(0)
+
+    # ── Page navigation ───────────────────────────────────
 
     def show_home_page(self):
-        self.map_page.pack_forget()
-        self.home_page.pack(fill="both", expand=True)
+        self.stack.setCurrentIndex(0)
 
     def show_map_page(self):
         currentDateTime = datetime.now()
         print("Current date and time:", currentDateTime)
         mission_id = currentDateTime.strftime('%Y-%m-%d_%H-%M-%S')
-        # Create Mission Folder
         os.makedirs(f"missions/{mission_id}", exist_ok=True)
-        self.map_page.gui_ref.missionState.set_missionID(mission_id)
-        self.home_page.pack_forget()
-        self.map_page.pack(fill="both", expand=True)
-        self.create_system_chat_message(f"Welcome to VITALS! I am your AI assistant. Please connect to mavlink with the button on the left sidebar to start the mission. Your mission ID is {mission_id}.")
+
+        # Reset state for new mission
+        self.reset_for_new_mission()
+        self.missionState.reset_for_new_mission()
+        self.map_page.reset_for_new_mission()
+
+        self.missionState.set_missionID(mission_id)
+        self.stack.setCurrentIndex(1)
+        self.create_system_chat_message(
+            f"Welcome to VITALS! I am your AI assistant. Please connect to mavlink "
+            f"with the button on the left sidebar to start the mission. Your mission ID is {mission_id}."
+        )
+
+    def reset_for_new_mission(self):
+        """Reset GUI state for a new mission."""
+        self.missionStarted = False
+        self.has_centered_on_drone = False
+        self.choosing_gcs_location = False
+        self.isAddingDetectionPoints = False
+
+        # Clear detection point markers from map
+        for marker_id in self.detection_point_marker_ids:
+            self.map_page.map_widget.remove_marker(marker_id)
+        self.detection_points = []
+        self.detection_point_marker_ids = []
+
+        # Clear GCS marker from map
+        if self.gcs_marker_id is not None:
+            self.map_page.map_widget.remove_marker(self.gcs_marker_id)
+            self.gcs_marker_id = None
+        self.gcs_location = None
+
+    # ── App lifecycle ─────────────────────────────────────
 
     def run(self):
-        self.app.mainloop()
+        self.window.show()
+        sys.exit(self.app.exec())
 
     def link_mission_state(self, missionState):
         self.missionState = missionState
 
+    # ── MAVLink connection ────────────────────────────────
+
     def call_mavlink_connection(self):
-        self.has_centered_on_drone = False
         success = self.missionState.connect_to_mavlink()
         if success:
             print("Connected to Mavlink successfully.")
-            self.map_page.connect_button.configure(state="disabled", text="Connected")
-            self.map_page.place_gcs_button.configure(state="normal")
-            self.create_system_chat_message("Connected to Mavlink successfully. Please place the GCS location using the 'Place GCS' button.")
+            self.map_page.connect_button.setEnabled(False)
+            self.map_page.connect_button.setText("Connected")
+            self.map_page.place_gcs_button.setEnabled(True)
+            self.create_system_chat_message(
+                "Connected to Mavlink successfully. Please place the GCS location using the 'Place GCS' button."
+            )
         else:
             print("Failed to connect to Mavlink.Callback")
+
+    # ── Polygon ───────────────────────────────────────────
 
     def get_polygon_points(self):
         return self.map_page.get_polygon_points()
@@ -78,87 +149,139 @@ class GUI:
     def sendMissionPolygon(self, polygon_points):
         self.missionState.addMissionPolygon(polygon_points)
 
+    # ── Drone updates (called from MAVLink thread → marshalled to main thread) ──
+
     def updateDronePosition(self, drone_id, lat, lon, altitude, relative_altitude, heading, vx, vy, vz):
-        # Convert from MAVLink scaled integer format if needed (1e-7 scaling)
-        if abs(lat) > 90 or abs(lon) > 180:
-            lat = lat / 1e7
-            lon = lon / 1e7
+        def _do():
+            _lat, _lon = lat, lon
+            if abs(_lat) > 90 or abs(_lon) > 180:
+                _lat = _lat / 1e7
+                _lon = _lon / 1e7
 
-        # Ignore invalid coordinates
-        if abs(lat) > 90 or abs(lon) > 180:
-            return
+            drone = next((d for d in self.map_page.drones if d.id == drone_id), None)
+            if drone is not None:
+                drone.setPosition(_lat, _lon, altitude, relative_altitude, heading, vx, vy, vz)
 
-        drone = next((drone for drone in self.map_page.drones if drone.id == drone_id), None)
-        if drone is not None:
-            drone.setPosition(lat, lon, altitude, relative_altitude, heading, vx, vy, vz)
-
-            # Center the map on the first drone position received
-            if not self.has_centered_on_drone and lat != 0 and lon != 0:
-                print(f"DEBUG: Centering map on drone {drone_id} at ({lat}, {lon})")
-                self.map_page.map_widget.set_position(lat, lon)
-                self.map_page.map_widget.set_zoom(17)  # Zoom in for better visibility
-                self.has_centered_on_drone = True
-                self.create_system_chat_message(f"Map centered on drone {drone_id} position.")
-        else:
-            print(f"DEBUG: updateDronePosition called but drone {drone_id} not found. lat={lat}, lon={lon}")
+                if not self.has_centered_on_drone and _lat != 0 and _lon != 0:
+                    print(f"DEBUG: Centering map on drone {drone_id} at ({_lat}, {_lon})")
+                    self.map_page.map_widget.set_position(_lat, _lon)
+                    self.map_page.map_widget.set_zoom(17)
+                    self.has_centered_on_drone = True
+                    self.create_system_chat_message(f"Map centered on drone {drone_id} position.")
+            else:
+                print(f"DEBUG: updateDronePosition called but drone {drone_id} not found. lat={_lat}, lon={_lon}")
+        self._invoker.invoke(_do)
 
     def updateDroneTelemetry(self, drone_id, roll, pitch, yaw):
-        drone = next((drone for drone in self.map_page.drones if drone.id == drone_id), None)
-        if drone is not None:
-            drone.setTelemetry(roll, pitch, yaw)
+        def _do():
+            drone = next((d for d in self.map_page.drones if d.id == drone_id), None)
+            if drone is not None:
+                drone.setTelemetry(roll, pitch, yaw)
+        self._invoker.invoke(_do)
 
     def addDrone(self, drone_id, system_status):
-        self.map_page._add_drone(drone_id, system_status)
+        def _do():
+            print(f"DEBUG: Adding drone {drone_id} with status {system_status}")
+            self.map_page._add_drone(drone_id, system_status)
+        self._invoker.invoke(_do)
 
     def updateDroneStatus(self, drone_id, system_status):
-        drone = next((drone for drone in self.map_page.drones if drone.id == drone_id), None)
-        if drone is not None:
-            drone.setStatus(system_status)
+        def _do():
+            drone = next((d for d in self.map_page.drones if d.id == drone_id), None)
+            if drone is not None:
+                drone.setStatus(system_status)
+        self._invoker.invoke(_do)
 
     def updateJobs(self, drone_id, active_job, job_list):
-        drone = next((drone for drone in self.map_page.drones if drone.id == drone_id), None)
-        if drone is not None:
-            drone.update_jobs(active_job, job_list)
+        def _do():
+            drone = next((d for d in self.map_page.drones if d.id == drone_id), None)
+            if drone is not None:
+                drone.update_jobs(active_job, job_list)
+        self._invoker.invoke(_do)
+
+    def updateDroneOperatingAltitude(self, drone_id, altitude):
+        def _do():
+            drone = next((d for d in self.map_page.drones if d.id == drone_id), None)
+            if drone is not None:
+                drone.info_widget.altitude_label.setText(f"Altitude: {altitude} m (set)")
+        self._invoker.invoke(_do)
+
+    def updateDroneVisionModel(self, drone_id, model):
+        def _do():
+            drone = next((d for d in self.map_page.drones if d.id == drone_id), None)
+            if drone is not None:
+                print(f"Drone {drone_id} vision model updated to {model}")
+        self._invoker.invoke(_do)
+
+    # ── POI ───────────────────────────────────────────────
 
     def callAddPoiInMissionState(self, poi):
         self.missionState.addPOI(poi)
 
     def addPOI(self, poi):
-        #check if poi is already in the list
-        if poi not in self.map_page.pois:
-            self.map_page.add_poi(poi.lat, poi.lon, poi.name)
+        def _do():
+            if poi not in self.map_page.pois:
+                self.map_page.add_poi(poi.lat, poi.lon, poi.name)
+        self._invoker.invoke(_do)
+
+    def addDetectedPOI(self, lat, lon, name, description=""):
+        """Thread-safe: add a POI from image detection, returns poi_id.
+        Blocks the calling thread until the main thread creates the POI."""
+        result = [None]
+        event = threading.Event()
+        def _do():
+            result[0] = self.map_page.add_poi(lat, lon, name, description)
+            event.set()
+        self._invoker.invoke(_do)
+        event.wait(timeout=30)
+        return result[0]
+
+    def showTraversalCompleteDialog(self, drone_id):
+        """Thread-safe: show traversal complete dialog on the main thread."""
+        def _show():
+            from GUI.Entities.POI import TraversalCompleteDialog
+            dialog = TraversalCompleteDialog(drone_id, self)
+            dialog.accepted.connect(lambda: self.missionState.end_mission())
+            dialog.rejected.connect(lambda: self.missionState.repeat_search_traversal(drone_id))
+            dialog.show()
+            self._traversal_dialog = dialog  # prevent GC
+        self._invoker.invoke(_show)
+
+    # ── Chat ──────────────────────────────────────────────
 
     def create_system_chat_message(self, text):
-        """Add a system message bubble to the chat window."""
-        self.map_page.collapsible_sidebar.add_message_bubble(text, sender="llm")
+        """Add a system message bubble to the chat window (thread-safe)."""
+        self._invoker.invoke(
+            lambda: self.map_page.chat_sidebar.add_message_bubble(text, sender="llm")
+        )
+
+    # ── Detection points (simulation) ─────────────────────
 
     def start_adding_detection_points(self):
         self.isAddingDetectionPoints = True
-        self.map_page.map_widget.add_right_click_menu_command(label="Finish Adding Detection Points", command=self.finish_adding_detection_points)
+        self.map_page.map_widget.add_right_click_menu_command(
+            "Finish Adding Detection Points", self.finish_adding_detection_points
+        )
 
     def add_detection_point(self, coords):
         self.detection_points.append(coords)
-        self.detection_point_markers.append(self.map_page.map_widget.set_marker(coords["lat"], coords["lon"], text="Detection Point"))
+        marker_id = self.map_page.map_widget.add_marker(coords["lat"], coords["lon"], "Detection Point")
+        self.detection_point_marker_ids.append(marker_id)
 
     def finish_adding_detection_points(self):
         self.isAddingDetectionPoints = False
-        #remove the right click menu command where label =  "Finish Adding Detection Points"
-        list = self.map_page.map_widget.right_click_menu_commands
-        target_command = None
-        for command in list:
-            if command['label'] == "Finish Adding Detection Points":
-                target_command = command
-                break
-        list.remove(target_command)
+        self.map_page.map_widget.remove_right_click_menu_command("Finish Adding Detection Points")
 
-        for marker in self.detection_point_markers:
-            marker.delete()
-        self.detection_point_markers = []
+        for marker_id in self.detection_point_marker_ids:
+            self.map_page.map_widget.remove_marker(marker_id)
+        self.detection_point_marker_ids = []
+
         self.missionState.setDetectionPoints(self.detection_points)
         self.create_system_chat_message("Setup Complete. You can now begin the mission.")
-        self.map_page.end_mission_button.configure(state="normal")
+        self.map_page.end_mission_button.setEnabled(True)
 
-    #Debugging Functions
+    # ── Debug functions ───────────────────────────────────
+
     def call_takeoff_mission(self):
         target_drone = self.map_page.get_target_debug_drone()
         self.missionState.takeoff_mission(target_drone)
@@ -187,16 +310,13 @@ class GUI:
 
     def add_job_waypoint(self, coords):
         if len(self.currentJobWaypoints) == 0:
-            self.map_page.map_widget.add_right_click_menu_command(label="Finish Job", command=self.finish_creating_job)
+            self.map_page.map_widget.add_right_click_menu_command("Finish Job", self.finish_creating_job)
         waypointNum = len(self.currentJobWaypoints) + 1
         waypoint = JobWaypoint(coords[0], coords[1], waypointNum, self.map_page.map_widget)
         self.currentJobWaypoints.append(waypoint)
         if len(self.currentJobWaypoints) >= 2:
-            self.map_page.map_widget.delete_all_path()
-            positions = []
-            for waypoint in self.currentJobWaypoints:
-                positions.append((waypoint.lat, waypoint.lon))
-            path = self.map_page.map_widget.set_path(position_list=positions, width=5, color="red")
+            positions = [(wp.lat, wp.lon) for wp in self.currentJobWaypoints]
+            self.map_page.map_widget.set_path("job_path", positions, color="red", width=5)
 
     def call_simulate_image_detection(self):
         target_drone = self.map_page.get_target_debug_drone()
@@ -210,18 +330,30 @@ class GUI:
     def call_investigate_poi(self):
         drone_id = self.map_page.get_target_debug_drone()
         poi_id = self.map_page.get_debug_waypoints()
-
         self.missionState.create_poi_investigate_job(poi_id, drone_id)
+
+    # ── Mission control ───────────────────────────────────
 
     def call_start_mission(self):
         if not self.missionStarted:
             self.missionStarted = True
             self.missionState.startSearchMission()
             self.create_system_chat_message("Mission started successfully!")
-            self.map_page.end_mission_button.configure(text="End Mission", command=self.missionState.end_mission)
+            self.map_page.end_mission_button.setText("End Mission")
+            self.map_page.end_mission_button.clicked.disconnect()
+            self.map_page.end_mission_button.clicked.connect(self.missionState.end_mission)
+
+    def enter_mission_ended_state(self):
+        """Grey out controls and switch to mission-ended review mode."""
+        def _do():
+            self.map_page.enter_mission_ended_state()
+            self.create_system_chat_message("Mission ended. All drones returning to launch. View the mission report or return home to start a new mission.")
+        self._invoker.invoke(_do)
 
     def call_start_search_mission(self):
         self.missionState.startSearchMission()
+
+    # ── GCS placement ─────────────────────────────────────
 
     def set_gcs_location(self, coordinates_tuple):
         """Set the GCS location."""
@@ -229,28 +361,19 @@ class GUI:
         self.missionState.set_gcs_location(coordinates_tuple)
         self.choosing_gcs_location = False
 
-        # Load icon from assets folder
-        def _load_icon(path):
-            image = PIL.Image.open(path)
-            image = image.resize((50, 50))
-            return PIL.ImageTk.PhotoImage(image)
-
-        gcs_icon_path = "./assets/gcs.png"
-        gcs_icon = _load_icon(gcs_icon_path)
-
-        self.gcs_marker = self.map_page.map_widget.set_marker(
+        self.gcs_marker_id = self.map_page.map_widget.add_marker(
             coordinates_tuple[0], coordinates_tuple[1],
-            text="Ground Control",
-            icon=gcs_icon,
-            icon_anchor="center"
+            "Ground Control", icon="gcs"
         )
         print(f"GCS location set to: {coordinates_tuple}")
         self.create_system_chat_message("GCS location set successfully.")
-        # Clean up the preview marker and motion binding
         self.map_page.finalize_gcs_placement()
-        self.map_page.place_gcs_button.configure(text="Remove GCS")
-        self.create_system_chat_message("You can now draw the mission area by clicking on the map to create a polygon. Press the 'Finish Creating Polygon' button when you're ready to finish the mission area.")
-        self.map_page.start_polygon_button.configure(state="normal")
+        self.map_page.place_gcs_button.setText("Remove GCS")
+        self.create_system_chat_message(
+            "You can now draw the mission area by clicking on the map to create a polygon. "
+            "Press the 'Finish Creating Polygon' button when you're ready to finish the mission area."
+        )
+        self.map_page.start_polygon_button.setEnabled(True)
 
 
 if __name__ == "__main__":

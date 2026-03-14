@@ -2,8 +2,6 @@ pymavlink
 pyserial
 mavproxy
 ollama
-tkintermapview
-customtkinter
 osmnx
 matplotlib
 sqlalchemy
@@ -13,4 +11,6 @@ ultralytics
 numpy
 rtree
 psycopg2-binary==2.9.11
+PyQt6
+PyQt6-WebEngine
 

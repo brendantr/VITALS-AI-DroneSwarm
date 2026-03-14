@@ -1,186 +1,281 @@
 import os
-import customtkinter
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
+    QPushButton, QLineEdit, QComboBox, QDialog, QFrame,
+    QScrollArea, QSizePolicy
+)
+from PyQt6.QtCore import Qt
 
 
-class jobInfoContainer(customtkinter.CTkFrame):
-    def __init__(self, parent, drone_id):
-        # Create the drone info frame
-        self.job_frame = customtkinter.CTkFrame(parent)
-        self.job_frame.grid(row=0, column=drone_id-1, sticky="nsew", padx=10, pady=10)
+class jobInfoContainer:
+    def __init__(self, parent_widget, drone_id):
+        self.drone_id = drone_id
 
-        self.job_label = customtkinter.CTkLabel(
-            self.job_frame, text=f"Drone {drone_id} Jobs", font=("Arial", 16, "bold")
+        self.job_frame = QFrame(parent_widget)
+        self.job_frame.setProperty("cssClass", "card")
+        self.job_frame.setStyleSheet(
+            "QFrame { background-color: #16213e; border: 1px solid #0f3460; border-radius: 8px; }"
         )
-        self.job_label.pack(pady=5)
 
-        self.job_scrollable_frame = customtkinter.CTkScrollableFrame(self.job_frame, width=200, height=200)
-        self.job_scrollable_frame.pack(fill="both", expand=True)
+        frame_layout = QVBoxLayout(self.job_frame)
+        frame_layout.setContentsMargins(6, 6, 6, 6)
+        frame_layout.setSpacing(4)
+
+        self.job_label = QLabel(f"Drone {drone_id} Jobs")
+        self.job_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0; border: none;")
+        frame_layout.addWidget(self.job_label)
+
+        # Scrollable area for job items
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setMaximumHeight(220)
+        self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        self.job_scrollable_widget = QWidget()
+        self.job_scrollable_layout = QVBoxLayout(self.job_scrollable_widget)
+        self.job_scrollable_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.job_scrollable_layout.setContentsMargins(2, 2, 2, 2)
+        self.job_scrollable_layout.setSpacing(4)
+
+        self.scroll_area.setWidget(self.job_scrollable_widget)
+        frame_layout.addWidget(self.scroll_area)
+
+    def clear_jobs(self):
+        """Remove all job widgets from the scrollable area."""
+        while self.job_scrollable_layout.count():
+            item = self.job_scrollable_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
 
 
-class jobInfoItem(customtkinter.CTkFrame):
-    def __init__(self, parent, job, row, drone=None, active=False,):
+class jobInfoItem:
+    def __init__(self, parent_layout, job, drone=None, active=False):
         self.drone = drone
         self.active = active
-        # Create the job info frame
+
+        self.frame = QFrame()
         if active:
-            self.job_info = customtkinter.CTkFrame(parent, fg_color="#337ab7")
+            self.frame.setProperty("cssClass", "job-active")
+            self.frame.setStyleSheet(
+                "QFrame { background-color: #0f3460; border-left: 3px solid #00e676; "
+                "border-radius: 4px; padding: 6px; }"
+            )
         else:
-            self.job_info = customtkinter.CTkFrame(parent, fg_color="#5C5C5C")
-        self.job_info.grid(row=row, column=0, padx=10, pady=10, sticky="ew")
+            self.frame.setProperty("cssClass", "job-queued")
+            self.frame.setStyleSheet(
+                "QFrame { background-color: #16213e; border-left: 3px solid #555555; "
+                "border-radius: 4px; padding: 6px; }"
+            )
 
-        self.job_type_label = customtkinter.CTkLabel(self.job_info, text=job.job_type, font=("Arial", 12, "bold"))
-        self.job_type_label.grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        layout = QGridLayout(self.frame)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(2)
 
-        self.job_status_label = customtkinter.CTkLabel(self.job_info, text=job.job_status, font=("Arial", 10, "bold"))
-        self.job_status_label.grid(row=1, column=1, sticky="e", padx=5, pady=5)
+        type_label = QLabel(job.job_type)
+        type_label.setStyleSheet("font-weight: bold; font-size: 11px; color: #e0e0e0; border: none; background: transparent;")
+        layout.addWidget(type_label, 0, 0)
 
-        self.num_waypoints_label = customtkinter.CTkLabel(self.job_info, text=f"Waypoints: {len(job.waypoints)}", font=("Arial", 10))
-        self.num_waypoints_label.grid(row=2, column=0, columnspan=2, sticky="w", padx=5)
+        status_label = QLabel(job.job_status)
+        status_label.setStyleSheet("font-weight: bold; font-size: 10px; color: #aaa; border: none; background: transparent;")
+        status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(status_label, 0, 1)
 
-        self.last_waypoint_label = customtkinter.CTkLabel(self.job_info, text=f"Last Visited Waypoint: {job.last_waypoint}", font=("Arial", 10))
-        self.last_waypoint_label.grid(row=3, column=0, columnspan=2, sticky="w", padx=5)
+        wp_label = QLabel(f"Waypoints: {len(job.waypoints)}")
+        wp_label.setStyleSheet("font-size: 10px; color: #aaa; border: none; background: transparent;")
+        layout.addWidget(wp_label, 1, 0, 1, 2)
 
-        self.job_priority_label = customtkinter.CTkLabel(self.job_info, text=f"Priority: {job.job_priority}", font=("Arial", 10))
-        self.job_priority_label.grid(row=4, column=0, columnspan=2, sticky="w", padx=5)
+        last_wp_label = QLabel(f"Last Visited: {job.last_waypoint}")
+        last_wp_label.setStyleSheet("font-size: 10px; color: #aaa; border: none; background: transparent;")
+        layout.addWidget(last_wp_label, 2, 0, 1, 2)
 
-        #bind click to call  toggle_show_active_job_path() on the drone object
-        self.job_info.bind("<Button-1>", self.call_toggle_if_active)
+        priority_label = QLabel(f"Priority: {job.job_priority}")
+        priority_label.setStyleSheet("font-size: 10px; color: #aaa; border: none; background: transparent;")
+        layout.addWidget(priority_label, 3, 0, 1, 2)
 
-    def call_toggle_if_active(self, event):
-        self.drone.toggle_show_active_job_path()
-        self.drone.showing_active_job_path = not self.drone.showing_active_job_path
+        if active and drone:
+            self.frame.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.frame.mousePressEvent = lambda e: self._toggle_path()
+
+        parent_layout.addWidget(self.frame)
+
+    def _toggle_path(self):
+        if self.drone:
+            self.drone.toggle_show_active_job_path()
+            self.drone.showing_active_job_path = not self.drone.showing_active_job_path
 
 
-class DroneInfoBox(customtkinter.CTkFrame):
-    def __init__(self, parent, id, drone_ref):
-        # Create the drone info frame
+class DroneInfoBox:
+    def __init__(self, parent_widget, drone_id, drone_ref):
         self.drone_ref = drone_ref
-        self.parent = parent
-        self.id = id
-        self.drone_info = customtkinter.CTkFrame(parent, fg_color="#337ab7")  # Blue background
-        self.drone_info.grid(row=id, column=0, padx=10, pady=10, sticky="ew")
+        self.parent_widget = parent_widget
+        self.id = drone_id
 
-        # Add the drone ID
-        self.id_label = customtkinter.CTkLabel(self.drone_info, text=f"ID: {id}", font=("Arial", 12, "bold"), fg_color="#337ab7")
-        self.id_label.grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.frame = QFrame(parent_widget)
+        self.frame.setProperty("cssClass", "drone-card")
+        self.frame.setStyleSheet(
+            "QFrame { background-color: #0f3460; border: 1px solid #533483; border-radius: 8px; padding: 8px; }"
+        )
 
-        # Add the status label
-        self.status_label = customtkinter.CTkLabel(self.drone_info, text="Active", font=("Arial", 10, "bold"), fg_color="green", padx=5, pady=2)
-        self.status_label.grid(row=0, column=1, sticky="e", padx=5, pady=5)
+        layout = QGridLayout(self.frame)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(3)
 
-        # Add the drone details
-        self.position_label = customtkinter.CTkLabel(self.drone_info, text="Position: Unknown", font=("Arial", 10), fg_color="#337ab7")
-        self.position_label.grid(row=1, column=0, columnspan=2, sticky="w", padx=5)
+        # ID
+        self.id_label = QLabel(f"ID: {drone_id}")
+        self.id_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #e0e0e0; border: none; background: transparent;")
+        layout.addWidget(self.id_label, 0, 0)
 
-        self.altitude_label = customtkinter.CTkLabel(self.drone_info, text="Altitude: Unknown", font=("Arial", 10), fg_color="#337ab7")
-        self.altitude_label.grid(row=2, column=0, columnspan=2, sticky="w", padx=5)
+        # Status
+        self.status_label = QLabel("Active")
+        self.status_label.setStyleSheet(
+            "font-weight: bold; font-size: 10px; color: #00e676; "
+            "background: rgba(0, 230, 118, 0.15); border-radius: 4px; padding: 2px 8px; border: none;"
+        )
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.status_label, 0, 1)
 
-        self.velocity_label = customtkinter.CTkLabel(self.drone_info, text="Velocity: Unknown", font=("Arial", 10), fg_color="#337ab7",)
-        self.velocity_label.grid(row=3, column=0, columnspan=2, sticky="w", padx=5)
+        # Details
+        self.position_label = QLabel("Position: Unknown")
+        self.position_label.setStyleSheet("font-size: 10px; color: #aaa; border: none; background: transparent;")
+        layout.addWidget(self.position_label, 1, 0, 1, 2)
 
-        self.heading_label = customtkinter.CTkLabel(self.drone_info, text="Heading: Unknown", font=("Arial", 10), fg_color="#337ab7",)
-        self.heading_label.grid(row=4, column=0, columnspan=2, sticky="w", padx=5)
+        self.altitude_label = QLabel("Altitude: Unknown")
+        self.altitude_label.setStyleSheet("font-size: 10px; color: #aaa; border: none; background: transparent;")
+        layout.addWidget(self.altitude_label, 2, 0, 1, 2)
 
-        self.settings_button = customtkinter.CTkButton(self.drone_info, text="Settings", command=self.open_settings)
-        self.settings_button.grid(row=5, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+        self.velocity_label = QLabel("Velocity: Unknown")
+        self.velocity_label.setStyleSheet("font-size: 10px; color: #aaa; border: none; background: transparent;")
+        layout.addWidget(self.velocity_label, 3, 0, 1, 2)
+
+        self.heading_label = QLabel("Heading: Unknown")
+        self.heading_label.setStyleSheet("font-size: 10px; color: #aaa; border: none; background: transparent;")
+        layout.addWidget(self.heading_label, 4, 0, 1, 2)
+
+        self.settings_button = QPushButton("Settings")
+        self.settings_button.setStyleSheet(
+            "QPushButton { font-size: 11px; padding: 4px 8px; }"
+        )
+        self.settings_button.clicked.connect(self.open_settings)
+        layout.addWidget(self.settings_button, 5, 0, 1, 2)
 
     def updatePos(self, position, altitude, velocity, heading):
-        self.position_label.configure(text=f"Position: {position[0]:.7f}, {position[1]:.7f}")
-        self.altitude_label.configure(text=f"Altitude: {altitude / 1000} m")
-        self.velocity_label.configure(text=f"Velocity: {velocity:.2f}")
-        self.heading_label.configure(text=f"Heading: {heading}")
+        self.position_label.setText(f"Position: {position[0]:.7f}, {position[1]:.7f}")
+        self.altitude_label.setText(f"Altitude: {altitude / 1000} m")
+        self.velocity_label.setText(f"Velocity: {velocity:.2f}")
+        self.heading_label.setText(f"Heading: {heading}")
 
     def open_settings(self):
-        # Open settings window
-        self.settings_window = customtkinter.CTkToplevel(self.parent)
-        self.settings_window.title(f"Settings for Drone {self.id}")
-        self.settings_window.geometry("300x600")
-        self.settings_window.resizable(False, False)
-        starting_alt = self.drone_ref.gui_ref.missionState.get_drone_operatingAltitude(self.id)
-        starting_model = self.drone_ref.gui_ref.missionState.get_drone_vision_model(self.id)
+        dialog = DroneSettingsDialog(
+            self.id, self.drone_ref, self.parent_widget
+        )
+        dialog.exec()
+
+    def updateStatus(self, status):
+        status_map = {
+            0: ("UnInit", "#78909c", "rgba(120, 144, 156, 0.15)"),
+            1: ("Boot", "#78909c", "rgba(120, 144, 156, 0.15)"),
+            2: ("Calibrating", "#ffab00", "rgba(255, 171, 0, 0.15)"),
+            3: ("Standby", "#ffab00", "rgba(255, 171, 0, 0.15)"),
+            4: ("Active", "#00e676", "rgba(0, 230, 118, 0.15)"),
+            5: ("Critical", "#ff1744", "rgba(255, 23, 68, 0.15)"),
+            6: ("Emergency", "#ff1744", "rgba(255, 23, 68, 0.15)"),
+        }
+        text, color, bg = status_map.get(status, ("Unknown", "#78909c", "rgba(120, 144, 156, 0.15)"))
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(
+            f"font-weight: bold; font-size: 10px; color: {color}; "
+            f"background: {bg}; border-radius: 4px; padding: 2px 8px; border: none;"
+        )
+
+
+class DroneSettingsDialog(QDialog):
+    def __init__(self, drone_id, drone_ref, parent=None):
+        super().__init__(parent)
+        self.drone_id = drone_id
+        self.drone_ref = drone_ref
+        self.setWindowTitle(f"Settings for Drone {drone_id}")
+        self.setFixedSize(320, 500)
+
+        starting_alt = drone_ref.gui_ref.missionState.get_drone_operatingAltitude(drone_id)
+        starting_model = drone_ref.gui_ref.missionState.get_drone_vision_model(drone_id)
         available_models = []
-        #parse the CVModels Folder
         for filename in os.listdir("./ComputerVision/CVModels/"):
             if filename.endswith(".pt"):
                 available_models.append(filename[:-3])
-        #force top level
-        self.settings_window.attributes("-topmost", True)
-        # Add a label
-        label = customtkinter.CTkLabel(self.settings_window, text=f"Settings for Drone {self.id}", font=("Arial", 16))
-        label.pack(pady=10)
-        # Add operating altitude input
-        altitude_label = customtkinter.CTkLabel(self.settings_window, text="Operating Altitude (m):")
-        altitude_label.pack(pady=5)
-        self.altitude_entry = customtkinter.CTkEntry(self.settings_window, placeholder_text=starting_alt)
-        self.altitude_entry.pack(pady=5)
-        # Add vision model input
-        model_label = customtkinter.CTkLabel(self.settings_window, text="Vision Model:")
-        model_label.pack(pady=5)
-        self.model_entry = customtkinter.CTkOptionMenu(self.settings_window, values=available_models, command=None)
-        self.model_entry.set(starting_model[:-3])
-        self.model_entry.pack(pady=5)
-        self.mount_angle_label = customtkinter.CTkLabel(self.settings_window, text="Camera Mount Angle (degrees):")
-        self.mount_angle_label.pack(pady=5)
-        self.mount_angle_entry = customtkinter.CTkEntry(self.settings_window, placeholder_text="-5")
-        self.mount_angle_entry.pack(pady=5)
-        self.vertical_fov_label = customtkinter.CTkLabel(self.settings_window, text="Vertical FOV (degrees):")
-        self.vertical_fov_label.pack(pady=5)
-        self.vertical_fov_entry = customtkinter.CTkEntry(self.settings_window, placeholder_text="60")
-        self.vertical_fov_entry.pack(pady=5)
-        self.horizontal_fov_label = customtkinter.CTkLabel(self.settings_window, text="Horizontal FOV (degrees):")
-        self.horizontal_fov_label.pack(pady=5)
-        self.horizontal_fov_entry = customtkinter.CTkEntry(self.settings_window, placeholder_text="80")
-        self.horizontal_fov_entry.pack(pady=5)
 
-        # Add a save button
-        save_button = customtkinter.CTkButton(self.settings_window, text="Save", command=lambda: self.save_settings(starting_alt, starting_model, self.altitude_entry.get(), self.model_entry.get()))
-        # Save the settings
-        save_button.pack(pady=10)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
 
-        # Add a close button
-        closebutton = customtkinter.CTkButton(self.settings_window, text="Close", command=self.close_settings)
-        closebutton.pack(pady=10)
+        title = QLabel(f"Settings for Drone {drone_id}")
+        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
 
-        # Prevent accidental closure
-        self.settings_window.protocol("WM_DELETE_WINDOW", self.close_settings)
+        # Altitude
+        layout.addWidget(QLabel("Operating Altitude (m):"))
+        self.altitude_entry = QLineEdit()
+        self.altitude_entry.setPlaceholderText(str(starting_alt))
+        layout.addWidget(self.altitude_entry)
 
-    def close_settings(self):
-        # Close the settings window
-        if hasattr(self, 'settings_window'):
-            self.settings_window.destroy()
-            self.settings_window = None
-        else:
-            print("Settings window already closed.")
+        # Vision model
+        layout.addWidget(QLabel("Vision Model:"))
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(available_models)
+        if starting_model and starting_model.endswith(".pt"):
+            model_name = starting_model[:-3]
+            idx = self.model_combo.findText(model_name)
+            if idx >= 0:
+                self.model_combo.setCurrentIndex(idx)
+        layout.addWidget(self.model_combo)
 
-    def save_settings(self, startingAlt, startingModel, alt, model):
+        # Camera settings
+        layout.addWidget(QLabel("Camera Mount Angle (degrees):"))
+        self.mount_angle_entry = QLineEdit()
+        self.mount_angle_entry.setPlaceholderText("-5")
+        layout.addWidget(self.mount_angle_entry)
 
-        try:
-            alt = int(alt)
-            if alt < 0:
-                raise ValueError("Altitude must be positive.")
-            if alt != startingAlt:
-                self.drone_ref.gui_ref.missionState.set_drone_operatingAltitude(self.id, alt)
-        except ValueError as e:
-            print(f"Invalid altitude value: {e}")
-            return
-        if model != startingModel:
-            self.drone_ref.gui_ref.missionState.set_drone_vision_model(self.id, model+".pt")
+        layout.addWidget(QLabel("Vertical FOV (degrees):"))
+        self.vertical_fov_entry = QLineEdit()
+        self.vertical_fov_entry.setPlaceholderText("60")
+        layout.addWidget(self.vertical_fov_entry)
 
-    def updateStatus(self, status):
+        layout.addWidget(QLabel("Horizontal FOV (degrees):"))
+        self.horizontal_fov_entry = QLineEdit()
+        self.horizontal_fov_entry.setPlaceholderText("80")
+        layout.addWidget(self.horizontal_fov_entry)
 
-        if status == 0:
-            self.status_label.configure(text="UnInit", fg_color="gray")
-        elif status == 1:
-            self.status_label.configure(text="Boot", fg_color="gray")
-        elif status == 2:
-            self.status_label.configure(text="Calibrating", fg_color="yellow")
-        elif status == 3:
-            self.status_label.configure(text="Standby", fg_color="orange")
-        elif status == 4:
-            self.status_label.configure(text="Active", fg_color="green")
-        elif status == 5:
-            self.status_label.configure(text="Critical", fg_color="red")
-        elif status == 6:
-            self.status_label.configure(text="Emergency", fg_color="red")
-        else:
-            self.status_label.configure(text="Unknown", fg_color="gray")
+        layout.addStretch()
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        save_btn = QPushButton("Save")
+        save_btn.setProperty("cssClass", "primary")
+        save_btn.clicked.connect(lambda: self.save_settings(starting_alt, starting_model))
+        btn_layout.addWidget(save_btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        btn_layout.addWidget(close_btn)
+
+        layout.addLayout(btn_layout)
+
+    def save_settings(self, starting_alt, starting_model):
+        alt_text = self.altitude_entry.text().strip()
+        model = self.model_combo.currentText()
+
+        if alt_text:
+            try:
+                alt = int(alt_text)
+                if alt < 0:
+                    raise ValueError("Altitude must be positive.")
+                if alt != starting_alt:
+                    self.drone_ref.gui_ref.missionState.set_drone_operatingAltitude(self.drone_id, alt)
+            except ValueError as e:
+                print(f"Invalid altitude value: {e}")
+                return
+
+        if model and model != starting_model:
+            self.drone_ref.gui_ref.missionState.set_drone_vision_model(self.drone_id, model + ".pt")
+
+        self.close()
