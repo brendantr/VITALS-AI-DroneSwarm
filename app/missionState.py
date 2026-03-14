@@ -3,6 +3,7 @@ matplotlib.use('QtAgg')
 
 import os
 import random
+import time
 from GUI import GUI
 from Dispatcher import Dispatcher
 import asyncio
@@ -17,7 +18,6 @@ from Utils import coordinate_estimation
 import heapq
 from ComputerVision import objectDetection
 import cv2
-import threading
 
 class Drone:
     drone_id = None
@@ -69,7 +69,6 @@ class Drone:
             self.home_longitude = longitude
 
         # Record position every 2 seconds for mission report
-        import time
         now = time.time()
         if now - self._last_history_time >= 2:
             self._last_history_time = now
