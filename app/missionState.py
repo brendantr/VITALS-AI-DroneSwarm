@@ -282,25 +282,45 @@ class missionState:
         self.missionPolygon = polygon
         self.doPathPlanning()
         new_visualization = Interactive_Visualization(self)
-        #new_visualization.initalize_plot(rtree, grid, polygon, {"building": (1, 0, 0, 1.0), "water":(0.0, 0.0, 1.0, 1.0), "highway":{"highway":(1, 0, 0, 1),"pedestrian_path":(0, 0, 1, 1)}}, show_grid=True,polygon_darkening_factor=0, drone_paths=self.drone_search_destinations)
-        self.visualization_thread = threading.Thread(
-        target=new_visualization.initalize_plot,
-            args=(rtree, grid, polygon, {
-                "building": (1, 0, 0, 1.0),
-                "water": (0.0, 0.0, 1.0, 1.0),
-                "highway": {
-                    "highway": (1.0, 0.65, 0.0, 1.0),
-                    "pedestrian_path": (0.4, 0.8, 0.4, 1.0)
-                }
-            }),
-            kwargs={
-                "show_grid": True,
-                "polygon_darkening_factor": 0,
-                "drone_paths": self.drone_search_destinations
-            },
-            daemon=True
-        )
-        self.visualization_thread.start()
+        try:
+            new_visualization.initalize_plot(
+                rtree,
+                grid,
+                polygon,
+                {
+                    "building": (1, 0, 0, 1.0),
+                    "water": (0.0, 0.0, 1.0, 1.0),
+                    "highway": {"highway": (1, 0, 0, 1), "pedestrian_path": (0, 0, 1, 1)},
+                },
+                True,
+                0,
+                self.drone_search_destinations,
+            )
+        except Exception as e:
+            print(f"Visualization error (non-fatal): {e}")
+
+        # REMOVE threaded launch:
+        # self.visualization_thread = threading.Thread(
+        #     target=new_visualization.initalize_plot,
+        #     args=(rtree, grid, polygon, {"building": (1, 0, 0, 1.0), "water": (0.0, 0.0, 1.0, 1.0), "highway": {"highway": (1, 0, 0, 1), "pedestrian_path": (0, 0, 1, 1)}}, True, 0, self.drone_search_destinations),
+        #     daemon=True
+        # )
+        # self.visualization_thread.start()
+
+        # ADD main-thread schedule:
+        #new_visualization.initalize_plot(
+        #    rtree,
+        #    grid,
+        #    polygon,
+        #    {
+        #        "building": (1, 0, 0, 1.0),
+        #        "water": (0.0, 0.0, 1.0, 1.0),
+        #        "highway": {"highway": (1, 0, 0, 1), "pedestrian_path": (0, 0, 1, 1)},
+        #    },
+        #    True,
+        #    0,
+        #    self.drone_search_destinations,
+        #)
         #plot_postGIS_data(rtree, grid, polygon, {"building": (1, 0, 0, 1.0), "water":(0.0, 0.0, 1.0, 1.0), "highway":{"highway":(1, 0, 0, 1),"pedestrian_path":(0, 0, 1, 1)}}, show_grid=True,polygon_darkening_factor=0, insta_plot=True)
         #Need to calculate the path planning stuff after. 
 

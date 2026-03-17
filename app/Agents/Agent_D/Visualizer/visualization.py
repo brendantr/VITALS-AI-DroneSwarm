@@ -17,6 +17,20 @@ import matplotlib.patches as patches
 import matplotlib.collections as col
 import random
 import matplotlib.animation as animation
+import os
+import threading
+
+# Add robust Qt timer import (supports common bindings)
+try:
+    from PySide6.QtCore import QTimer
+except Exception:
+    try:
+        from PyQt6.QtCore import QTimer
+    except Exception:
+        try:
+            from PyQt5.QtCore import QTimer
+        except Exception:
+            QTimer = None
 
 class Drone_Path_Navigator:
     def __init__(self, interactive : "Interactive_Visualization"):
@@ -292,6 +306,10 @@ class Interactive_Visualization:
         pass
 
     def initalize_plot(self, rtree_index, grid = None, search_points = [], colors = {}, show_grid = True, polygon_darkening_factor = 0.5, drone_paths = {}):
+        # Fail fast before any plt/geopandas figure creation.
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("initalize_plot must run on main thread (macOS GUI constraint).")
+
         data_list = [item.object for item in rtree_index.intersection(rtree_index.bounds, objects=True)]
         # Create a GeoDataFrame using the 'geometry' key from each dictionary.
         gdf = gpd.GeoDataFrame(data_list, geometry="geometry")
@@ -317,10 +335,10 @@ class Interactive_Visualization:
                     value_color = colors.get(key)
                     if isinstance(value_color, dict):
                         #Need to disambiguite for some keys, since 
-                        #print(f"Key: {key}, Previous Value: {value}")
+                        print(f"Key: {key}, Previous Value: {value}")
                         value = disambiguate(key, value)
                         if value in value_color:
-                            #print(f"Value: {value}, Color: {value_color[value]}")
+                            print(f"Value: {value}, Color: {value_color[value]}")
                             present_colors.append(np.array(value_color[value]))
                     else:
                         present_colors.append(np.array(value_color))
@@ -411,8 +429,30 @@ class Interactive_Visualization:
                 return [point]
 
             # Create the animation
-            ani = animation.FuncAnimation(self.ax.figure, update, frames=None, init_func=init, blit=False, interval=100)
-            pass
+            self.ani = animation.FuncAnimation(
+                self.ax.figure,
+                update,
+                frames=None,
+                init_func=init,
+                blit=False,
+                interval=100,
+                cache_frame_data=False,
+            )
+
+            plt.show(block=False)
+
+            # always generate a static plot
+            self.ax.figure.savefig(png_path, dpi=150, bbox_inches="tight")
+
+            # optionally generate animation too
+            try:
+                ani.save(gif_path, writer=animation.PillowWriter(fps=10))
+            except Exception as e:
+                print(f"Animation save skipped: {e}")
+
+            print(f"Plot generated: {png_path}")
+            print(f"Animation generated: {gif_path}")
+        pass
 
 
         def update_grid(event):
@@ -462,7 +502,7 @@ def plot_postGIS_data(data, colors = []):
     ax = gdf.plot(color=gdf["color_hex"], figsize=(10, 6), edgecolor="black", alpha=0.7)
     ax.set_title("Blended Colors for Mixed Categories")
 
-def plot_drone_paths(rtree_index, grid = None, search_points = [], colors = {}, show_grid = True, polygon_darkening_factor = 0.5, drone_paths = {}):
+def plot_drone_paths(rtree_index, grid = None, search_points = [], colors = {}, show_grid = True, polygon_darkening_factor = 0.5, insta_plot= True):
     drone_colors = ["purple", "blue", "yellow", "green"]
     drone_ids = list(drone_paths.keys())
     drone_color_map = {drone_ids[i % len(drone_colors)]: drone_colors[i % len(drone_colors)] for i in range(len(drone_ids))}
@@ -879,4 +919,3 @@ def plot_search_area2(rtree_index, grid, polygon_points):
         # Set the axis limits based on the bounding box of the polygon
         # Show the plot
         plt.show()
-        
