@@ -1,7 +1,8 @@
 # ===== MAVLink =====
 pymavlink
 #  - MAVLink protocol bindings for Python to communicate with drones using MAVLink messages
-
+pyserial
+mavproxy
 # ===== GUI =====
 tkintermapview
 #  - An embeddable map widget for Tkinter that shows tiles and map markers (used for the main map view)
