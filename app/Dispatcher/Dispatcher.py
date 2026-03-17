@@ -432,7 +432,7 @@ class Dispatcher:
         #self.master.waypoint_clear_all_send()
 
 
-            print(f"Cannot request mission list: MAVLink is not connected!")
+    print(f"Cannot request mission list: MAVLink is not connected!")
     def request_mission_list(self, drone_id):
         """Request the mission list from the drone."""
         if not self.master:
