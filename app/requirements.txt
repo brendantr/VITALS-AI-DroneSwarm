@@ -30,7 +30,7 @@ sqlalchemy
 #  - A Python toolkit for building SQL queries and reflecting database schemas programmatically
 geoalchemy2
 #  - Extensions to SQLAlchemy that add PostGIS/geometry column types and helpers
-psycopg2-binary
+psycopg2-binary==2.9.11
 #  - Low-level PostgreSQL database adapter used to execute SQL and fetch results (binary dist)
 pyproj
 #  - Python interface to PROJ for coordinate transformations and geodetic calculations
