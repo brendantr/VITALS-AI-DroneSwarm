@@ -345,7 +345,7 @@ class LeafletMap(QWidget):
         gcs_b64 = _load_image_base64(os.path.join(assets_dir, "gcs.png"))
 
         # Check internet connectivity for tile server selection
-        from TerrainPreProcessing.check_internet import has_internet
+        from Agents.Agent_D.OSM_Database.ingestion.check_internet import has_internet
         if has_internet():
             tile_url = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         else:

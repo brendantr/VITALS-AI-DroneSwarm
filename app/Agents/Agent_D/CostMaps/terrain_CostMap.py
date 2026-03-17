@@ -15,9 +15,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 try:
-    from Agent_D.CostMaps.pathing_CostMap import PathingCostMap
+    from pathing_CostMap import PathingCostMap
 except ImportError:  # Script execution fallback.
-    from CostMaps.pathing_CostMap import PathingCostMap  # type: ignore
+    from Agents.Agent_D.CostMaps.pathing_CostMap import PathingCostMap  # type: ignore
 
 
 class Tile:

@@ -4,15 +4,15 @@ from GUI.GUI import GUI
 from Dispatcher import Dispatcher
 import asyncio
 import threading
-from Agent_D.OSM_Database.query.terrain_queries import create_search_area
-from Agent_D.Visualizer.visualization import plot_search_area, plot_advanced, plot_postGIS_data, plot_drone_paths
-from Agent_D.Visualizer.visualization import Interactive_Visualization
-from Agent_D.CostMaps.pathing.path import search_grid_with_drones
+from Agents.Agent_D.OSM_Database.query.terrain_queries import create_search_area
+from Agents.Agent_D.Visualizer.visualization import plot_search_area, plot_advanced, plot_postGIS_data, plot_drone_paths
+from Agents.Agent_D.Visualizer.visualization import Interactive_Visualization
+from Agents.Agent_D.CostMaps.pathing.path import search_grid_with_drones
 from LangGraph import langChainMain
 import concurrent.futures
 from Utils import coordinate_estimation
 import heapq
-from ComputerVision import objectDetection
+from Agents.Agent_A.PerceptionProcessing.YoloDetector import YoloDetector
 import cv2
 import threading
 from models.jobs.job_queue import JobQueue
@@ -469,7 +469,7 @@ class missionState:
             future = executor.submit(process_image)
             description = future.result()  # Wait for the result in a non-blocking way
 
-        image, detections = objectDetection.detect_and_draw(image_path)
+        detections, image = YoloDetector.detect_from_path(image_path, true)
         if detections is None or len(detections) == 0:
             print("No objects detected in the image.")
             return

@@ -5,7 +5,7 @@ from typing import List, Dict, Optional, Tuple
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 import logging
-from PerceptionProcessing.Detection import Detection
+from .Detection import Detection
 
 logger = logging.getLogger(__name__)
 

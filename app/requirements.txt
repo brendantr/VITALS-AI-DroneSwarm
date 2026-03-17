@@ -9,8 +9,8 @@ customtkinter
 #  - A modern-themed UI toolkit for Tkinter that provides styled buttons, frames and controls
 Pillow
 #  - Python Imaging Library for loading, manipulating and saving images (required for GUI icons)
-
-
+PyQt6
+PyQt6-WebEngine
 # ===== Path planning & Geospatial  =====
 numpy
 rtree
