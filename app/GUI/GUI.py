@@ -129,6 +129,7 @@ class GUI:
     # ── MAVLink connection ────────────────────────────────
 
     def call_mavlink_connection(self):
+        self.has_centered_on_drone = False
         success = self.missionState.connect_to_mavlink()
         if success:
             print("Connected to Mavlink successfully.")
