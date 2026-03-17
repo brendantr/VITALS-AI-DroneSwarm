@@ -1,0 +1,44 @@
+1. Create docker volume 
+
+docker volume create osm-data
+
+2. Importing PBF
+
+docker run -v C:\Users\Banka\Downloads\us-south-latest.osm.pbf:/data/region.osm.pbf -v osm-data:/data/database/ overv/openstreetmap-tile-server import
+
+3. Creating Tile Partition
+
+docker volume create osm-tiles
+docker run -p 8080:80 -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ -d overv/openstreetmap-tile-server run
+
+4. Running the server
+
+docker run --rm -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+
+
+
+
+This stuff not needed
+
+Run the docker, and expose postGIS, with the password being mysecretpassword
+docker run -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -e POSTGRES_PASSWORD=mysecretpassword -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+
+
+docker run -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -e POSTGRES_USER=myuser -e POSTGRES_PASSWORD=mysecretpassword -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+
+
+
+docker run -p 8080:80 -e THREADS=24 -v osm-data:/data/database/ --shm-size="16g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+
+
+docker run -p 8080:80 -e THREADS=32 -e CACHE_SIZE=8000 -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="32g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+
+
+
+
+docker run -p 8080:80 -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="16g" -d overv/openstreetmap-tile-server run
+
+docker run -p 8080:80 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run
+
+
+docker run -p 8080:80 -p 5432:5432 -e THREADS=24 -e "OSM2PGSQL_EXTRA_ARGS=-C 24000" -e BACKGROUND_RENDERING=true -v osm-data:/data/database/ -v osm-tiles:/data/tiles/ --shm-size="8g" --cpus="16.0" -d overv/openstreetmap-tile-server run

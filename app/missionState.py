@@ -1,3 +1,6 @@
+import matplotlib
+matplotlib.use('QtAgg')
+
 import os
 import random
 from GUI.GUI import GUI
@@ -39,6 +42,7 @@ class Drone:
     last_mission_state = None
     available = True
     operatingAltitude = 10 # meters
+    maxVelocity = 10.0 # m/s
     visionModel = "rf3v1.pt"
 
     def __init__(self, missionState, drone_id, system_status, operatingAltitude):
@@ -46,8 +50,9 @@ class Drone:
         self.drone_id = drone_id
         self.system_status = system_status
         self.operatingAltitude = operatingAltitude
-        self.jobQueue = JobQueue()
-        
+        self.jobQueue = jobPriorityQueue()
+        self.position_history = []
+        self._last_history_time = 0
 
     #SETTERS
     def updatePosition(self, latitude, longitude, altitude, relative_altitude, heading, vx, vy, vz):
@@ -64,7 +69,12 @@ class Drone:
         if self.home_latitude is None and has_valid_gps_fix:
             self.home_latitude = latitude
             self.home_longitude = longitude
-
+        # Record position every 2 seconds for mission report
+        import time
+        now = time.time()
+        if now - self._last_history_time >= 2:
+            self._last_history_time = now
+            self.position_history.append((latitude, longitude))
         self.missionState.gui.updateDronePosition(self.drone_id, latitude, longitude, altitude, relative_altitude, heading, vx, vy, vz)
 
     def updateTelemetry(self, roll, pitch, yaw):
@@ -78,9 +88,9 @@ class Drone:
         self.missionState.gui.updateDroneStatus(self.drone_id, system_status)
     
     def addJob(self, job):
-        if self.jobQueue.is_empty() and self.active_job is None: 
+        if self.active_job is None and self.available:
             self.setActiveJob(job)
-        elif self.active_job is not None and (int(job.job_priority) - int(self.active_job.job_priority)) > 3:
+        elif self.available and self.active_job is not None and (int(job.job_priority) - self.active_job.job_priority) > 3:
             # if the new job has a higher priority than the active job, pause the active job
             self.setActiveJob(job)
         else:
@@ -122,13 +132,16 @@ class Drone:
     def setJobComplete(self):
         if self.active_job is not None:
             print(f"Completing job {self.active_job.job_id}")  # Debugging
+            completed_job_type = self.active_job.job_type
             self.active_job.job_status = "Completed"
-            self.active_job = None  
-            if not self.jobQueue.is_empty():
+            self.active_job = None
+            if self.available and not self.jobQueue.is_empty():
                 next_job = self.jobQueue.get_next_job()
                 print(f"Next job: {next_job.job_id}")  # Debugging
                 self.setActiveJob(next_job)  # Ensure it's using the new job
-            self.missionState.gui.updateJobs(self.drone_id, self.active_job, self.jobQueue.list_jobs())
+            elif self.available and self.jobQueue.is_empty() and completed_job_type == "Initial Search":
+                self.missionState.on_search_traversal_complete(self.drone_id)
+            self.missionState.gui.updateJobs(self.drone_id, self.active_job, self.jobQueue.queue)
     
     def setJobFailedUpload(self):
         if self.active_job is not None and self.active_job.upload_try_count < 3:
@@ -207,9 +220,32 @@ class missionState:
 
         #for simulation purposes
         self.detectionPoints = []
-        
-        
+        self.visualization_ready = False
+
+    def reset_for_new_mission(self):
+        """Reset missionState for a new mission while preserving MAVLink connection."""
+        self.pois = []
+        self.detectionPoints = []
+        self.visualization_ready = False
+        self.missionPolygon = None
+        self.missionGrid = None
+        self.rtree = None
+        self.viable_grid_positions = None
+        self.drone_search_destinations = None
+        self.gcs_location = None
+        # Reset all drone state for new mission
+        for drone in self.drones:
+            drone.position_history = []
+            drone._last_history_time = 0
+            drone.available = True
+            drone.active_job = None
+            drone.last_mission_state = None
+            drone.jobQueue = jobPriorityQueue()
+
     def connect_to_mavlink(self):
+        if self.mavLinkConnected:
+            print("Already connected to MAVLink")
+            return True
         success = self.dispatcher.connect()
         if success:
             self.dispatcherThread = threading.Thread(target=self.run_asyncio_loop, daemon=True)
@@ -229,7 +265,7 @@ class missionState:
         self.loop.run_until_complete(self.dispatcher.receive_packets())
 
     def addDrone(self, drone_id, system_status):
-        self.drones.append(Drone(self, drone_id, system_status, 10 + (5 * len(self.drones))))
+        self.drones.append(Drone(self, drone_id, system_status, 20 + (5 * len(self.drones))))
         self.drones.sort(key=lambda x: x.drone_id)
         self.gui.addDrone(drone_id, system_status)
 
@@ -242,7 +278,8 @@ class missionState:
         if drone is not None:
             drone.updatePosition(latitude, longitude, altitude, relative_altitude, heading, vx, vy, vz)
             #check if drone is within 20 meters of the target detection points
-            if self.detectionPoints:
+            # Skip detection if drone is unavailable (RTL) or actively investigating a POI
+            if self.detectionPoints and drone.available and (drone.active_job is None or not drone.active_job.job_type.startswith("Investigate POI")):
                 for point in self.detectionPoints:
                     distance = coordinate_estimation.calculate_distance_between_points(
                         latitude / 1e7, longitude / 1e7,
@@ -307,22 +344,23 @@ class missionState:
         # )
         # self.visualization_thread.start()
 
-        # ADD main-thread schedule:
-        #new_visualization.initalize_plot(
-        #    rtree,
-        #    grid,
-        #    polygon,
-        #    {
-        #        "building": (1, 0, 0, 1.0),
-        #        "water": (0.0, 0.0, 1.0, 1.0),
-        #        "highway": {"highway": (1, 0, 0, 1), "pedestrian_path": (0, 0, 1, 1)},
-        #    },
-        #    True,
-        #    0,
-        #    self.drone_search_destinations,
-        #)
-        #plot_postGIS_data(rtree, grid, polygon, {"building": (1, 0, 0, 1.0), "water":(0.0, 0.0, 1.0, 1.0), "highway":{"highway":(1, 0, 0, 1),"pedestrian_path":(0, 0, 1, 1)}}, show_grid=True,polygon_darkening_factor=0, insta_plot=True)
-        #Need to calculate the path planning stuff after. 
+        def _show():
+            self._visualization = Interactive_Visualization(self)
+            self._visualization.initalize_plot(
+                self.rtree, self.missionGrid, self.missionPolygon, {
+                    "building": (1, 0, 0, 1.0),
+                    "water": (0.0, 0.0, 1.0, 1.0),
+                    "highway": {
+                        "highway": (1.0, 0.65, 0.0, 1.0),
+                        "pedestrian_path": (0.4, 0.8, 0.4, 1.0)
+                    }
+                },
+                show_grid=True,
+                polygon_darkening_factor=0,
+                drone_paths=self.drone_search_destinations
+            )
+
+        self.gui._invoker.invoke(_show)
 
     def doPathPlanning(self):
         #pass the grid, current_drone_positions(In ID Order, long-lat pairs), and number of drones(If you don't pass the drone positions)
@@ -473,6 +511,49 @@ class missionState:
             drone.setDroneUnavailable()
             self.dispatcher.return_to_launch(int(drone_id))
     
+    def resume_drone_mission(self, drone_id):
+        drone = next((d for d in self.drones if d.drone_id == int(drone_id)), None)
+        if drone is not None:
+            drone.setDroneAvailable()
+
+    def get_mission_report_data(self):
+        """Return planned and actual paths for each drone."""
+        report = []
+        for i, drone in enumerate(self.drones):
+            planned = []
+            if self.drone_search_destinations and i < len(self.drone_search_destinations):
+                for coord in self.drone_search_destinations[i]:
+                    planned.append((coord.y, coord.x))  # (lat, lon)
+            # Convert position history from 1e7 int format if needed
+            actual = []
+            for lat, lon in drone.position_history:
+                if abs(lat) > 90 or abs(lon) > 180:
+                    actual.append((lat / 1e7, lon / 1e7))
+                else:
+                    actual.append((lat, lon))
+            report.append({
+                'drone_id': drone.drone_id,
+                'planned': planned,
+                'actual': actual
+            })
+        return report
+
+    def on_search_traversal_complete(self, drone_id):
+        """Called when a drone finishes its Initial Search path with no jobs left."""
+        print(f"Drone {drone_id} has completed search traversal.")
+        self.gui.showTraversalCompleteDialog(drone_id)
+
+    def repeat_search_traversal(self, drone_id):
+        """Re-deploy the initial search path for a specific drone."""
+        drone = next((d for d in self.drones if d.drone_id == drone_id), None)
+        if drone is not None:
+            idx = self.drones.index(drone)
+            if self.drone_search_destinations and idx < len(self.drone_search_destinations):
+                converted_waypoints = []
+                for coord in self.drone_search_destinations[idx]:
+                    converted_waypoints.append((coord.y, coord.x, drone.operatingAltitude, 0))
+                self.create_job("Initial Search", converted_waypoints, 1, drone_id)
+
     def land_drone(self, drone_id):
         """Land the drone immediately at current location."""
         drone = next((d for d in self.drones if d.drone_id == int(drone_id)), None)
@@ -483,6 +564,7 @@ class missionState:
     def end_mission(self):
         for drone in self.drones:
             self.call_drone_home(drone.drone_id)
+        self.gui.enter_mission_ended_state()
     
     def set_missionID(self, id):
         self.missionID = id
@@ -571,6 +653,14 @@ class missionState:
         else:
             return None
     
+    def set_drone_maxVelocity(self, drone_id, velocity):
+        drone = next((d for d in self.drones if d.drone_id == drone_id), None)
+        if drone is not None:
+            drone.maxVelocity = velocity
+            print(f"Drone {drone_id} max velocity set to {velocity} m/s")
+            if self.mavLinkConnected:
+                self.dispatcher.set_max_velocity(drone_id, velocity)
+
     def get_drone_vision_model(self, drone_id):
         drone = next((d for d in self.drones if d.drone_id == drone_id), None)
         if drone is not None:

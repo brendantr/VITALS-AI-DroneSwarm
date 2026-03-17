@@ -4,6 +4,8 @@ import threading
 import time
 import math
 import traceback
+import glob
+import platform
 
 class mission_item:
     def __init__(self, seq, current, lat, lon, alt):
@@ -44,21 +46,33 @@ class Dispatcher:
         self.loop.run_forever()
 
     def connect(self):
-        connection_targets = [
-            "COM10",  # Direct serial connection to drone (57600 baud)
-            "tcp:127.0.0.1:14450",  # Mission Planner MAVLink Mirror (TCP)
-            "tcp:127.0.0.1:14550",  # QGroundControl forwarding (TCP)
-            "udp:127.0.0.1:14445",  # QGroundControl forwarding (UDP)
-            "udp:127.0.0.1:14550",  # Standard UDP port
-        ]
+        if platform.system().lower() == "windows":
+            connection_targets = [
+                "COM10",  # Direct serial connection to drone (57600 baud)
+                "tcp:127.0.0.1:14450",  # Mission Planner MAVLink Mirror (TCP)
+                "tcp:127.0.0.1:14550",  # QGroundControl forwarding (TCP)
+                "udp:127.0.0.1:14445",  # QGroundControl forwarding (UDP)
+                "udp:127.0.0.1:14550",  # Standard UDP port
+            ]
+        else:
+            serial_targets = sorted(glob.glob("/dev/cu.usbserial*")) + sorted(glob.glob("/dev/tty.usbserial*"))
+            serial_targets += sorted(glob.glob("/dev/cu.usbmodem*")) + sorted(glob.glob("/dev/tty.usbmodem*"))
+            connection_targets = serial_targets + [
+                "tcp:127.0.0.1:14450",  # Mission Planner MAVLink Mirror (TCP)
+                "tcp:127.0.0.1:14550",  # QGroundControl forwarding (TCP)
+                "udp:127.0.0.1:14445",  # QGroundControl forwarding (UDP)
+                "udp:127.0.0.1:14550",  # Standard UDP port
+            ]
+
+        print(f"MAVLink connection targets: {connection_targets}")
 
         for target in connection_targets:
             try:
                 # For serial connections, specify 57600 baud rate (RFD900x standard)
-                if target.startswith("COM"):
-                    self.master = mavutil.mavlink_connection(target, baud=57600, mavlink_version="2.0")
+                if target.startswith("COM") or target.startswith("/dev/"):
+                    self.master = mavutil.mavlink_connection(target, baud=57600, autoreconnect=False, mavlink_version="2.0")
                 else:
-                    self.master = mavutil.mavlink_connection(target, mavlink_version="2.0")
+                    self.master = mavutil.mavlink_connection(target, autoreconnect=False, mavlink_version="2.0")
                 
                 heartbeat = self.master.wait_heartbeat(timeout=5)
                 if not heartbeat:
@@ -225,10 +239,14 @@ class Dispatcher:
 
     async def start_mission(self, drone_id, takeoff_altitude=10):
         drone = self.missionState.get_drone(drone_id)
-        takeoff_altitude = drone.operatingAltitude
         if not drone:
             print(f"Drone {drone_id} not found.")
-            return 
+            return
+        # Don't start mission if drone is unavailable (e.g., RTL in progress)
+        if not drone.available:
+            print(f"Drone {drone_id} is unavailable (RTL/ended), aborting mission start.")
+            return
+        takeoff_altitude = drone.operatingAltitude
         if drone.system_status == 3: #drone is grounded need to add takeoff
             await  self.takeoff(drone_id, takeoff_altitude)
             
@@ -242,6 +260,10 @@ class Dispatcher:
         if not await self.wait_for_mode(drone_id, "AUTO"):
             print(f"Mission aborted: Drone {drone_id} failed to switch to AUTO mode.")
             return
+        # Apply max velocity before starting
+        if drone.maxVelocity:
+            self.set_max_velocity(drone_id, drone.maxVelocity)
+
         # Start the mission
         self.master.mav.command_long_send(
             drone_id, 0,
@@ -409,12 +431,12 @@ class Dispatcher:
         self.master.target_system = drone_id
         #self.master.waypoint_clear_all_send()
 
+
+            print(f"Cannot request mission list: MAVLink is not connected!")
     def request_mission_list(self, drone_id):
         """Request the mission list from the drone."""
         if not self.master:
             print(f"Cannot request mission list: MAVLink is not connected!")
-            return
-
         print(f"Requesting mission list from drone {drone_id}...")
         self.master.mav.mission_request_list_send(drone_id, 0)
 
@@ -489,6 +511,41 @@ class Dispatcher:
             await self.start_mission(drone_id)
         else:
             print(f"Drone {drone_id} is still climbing. Current altitude: {rel_alt}m, Target altitude: {target_alt}m.")
+
+    
+    def set_max_velocity(self, drone_id, velocity_ms):
+        """Set the max waypoint navigation speed for a drone.
+
+        Args:
+            drone_id: Target drone system ID
+            velocity_ms: Speed in m/s
+        """
+        if not self.master:
+            print(f"Cannot set velocity: MAVLink is not connected!")
+            return
+
+        # Set WPNAV_SPEED parameter (expects cm/s)
+        self.master.mav.param_set_send(
+            drone_id,
+            0,
+            b'WPNAV_SPEED',
+            float(velocity_ms * 100),  # Convert m/s to cm/s
+            mavutil.mavlink.MAV_PARAM_TYPE_REAL32
+        )
+        print(f"Set WPNAV_SPEED to {velocity_ms * 100} cm/s for drone {drone_id}")
+
+        # Also send DO_CHANGE_SPEED for immediate effect if airborne
+        self.master.mav.command_long_send(
+            drone_id,
+            0,
+            mavutil.mavlink.MAV_CMD_DO_CHANGE_SPEED,
+            0,
+            0,  # Speed type: 0 = groundspeed
+            float(velocity_ms),  # Speed in m/s
+            -1,  # Throttle (-1 = no change)
+            0, 0, 0, 0
+        )
+        print(f"Sent DO_CHANGE_SPEED {velocity_ms} m/s to drone {drone_id}")
 
     def return_to_launch(self, drone_id):
         """Switch drone to RTL mode and return to launch, or land immediately if needed."""
