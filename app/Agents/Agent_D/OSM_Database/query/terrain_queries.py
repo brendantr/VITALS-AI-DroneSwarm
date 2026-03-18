@@ -1,11 +1,12 @@
 from __future__ import annotations
+from sqlalchemy import create_engine
 
-from Agent_D.CostMaps.terrain_CostMap import (
+from ...CostMaps.terrain_CostMap import (
     Tile,
     find_extreme_coordinates,
     rectangle_side_lengths,
 )
-from Agent_D.OSM_Database.postgis.postgis_handler import query_tile_counts_4326
+from ..postgis.postgis_handler import query_tile_counts_4326
 from rtree import index
 
 DB_URL = "postgresql://renderer:renderer@localhost:5432/gis"

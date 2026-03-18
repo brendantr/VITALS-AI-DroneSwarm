@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt, QObject, pyqtSignal
 from PyQt6.QtGui import QIcon
 
 from GUI.theme import DARK_THEME
-from GUI.Entities.Job import JobWaypoint
+from models.jobs.job import JobWaypoint
 from GUI.Pages.HomePage import HomePage
 from GUI.Pages.MapPage import MapPage
 

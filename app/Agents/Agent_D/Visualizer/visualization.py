@@ -1,12 +1,7 @@
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString
 
-<<<<<<<< HEAD:app/Agents/Agent_D/Visualizer/visualization.py
 from ..CostMaps.terrain_CostMap import haversine
-from ..OSM_Database.query.query_disambiguation import disambiguate
-========
-from Agent_D.CostMaps.terrain_CostMap import haversine
-from Agent_D.OSM_Database.query.query_disambiguation import disambiguate
->>>>>>>> e988daa (Merge branch 'agentD' into working):app/Agent/Agent_D/Visualizer/visualization.py
+from .disambiguation import disambiguate
 import matplotlib.colors as mcolors
 import numpy as np
 import geopandas as gpd
@@ -25,7 +20,6 @@ import matplotlib.animation as animation
 import os
 import threading
 
-<<<<<<<< HEAD:app/Agents/Agent_D/Visualizer/visualization.py
 # Add robust Qt timer import (supports common bindings)
 try:
     from PySide6.QtCore import QTimer
@@ -38,8 +32,6 @@ except Exception:
         except Exception:
             QTimer = None
 
-========
->>>>>>>> e988daa (Merge branch 'agentD' into working):app/Agent/Agent_D/Visualizer/visualization.py
 class Drone_Path_Navigator:
     def __init__(self, interactive : "Interactive_Visualization"):
         self.interactive = interactive
