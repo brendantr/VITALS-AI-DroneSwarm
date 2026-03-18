@@ -587,7 +587,7 @@ class missionState:
             future = executor.submit(process_image)
             description = future.result()  # Wait for the result in a non-blocking way
 
-        detections, image = YoloDetector.detect_from_path(image_path, true)
+        detections, image = YoloDetector.detect_from_path(image_path, True)
         if detections is None or len(detections) == 0:
             print("No objects detected in the image.")
             return
