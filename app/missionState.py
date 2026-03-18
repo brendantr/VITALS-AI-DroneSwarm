@@ -50,7 +50,7 @@ class Drone:
         self.drone_id = drone_id
         self.system_status = system_status
         self.operatingAltitude = operatingAltitude
-        self.jobQueue = jobPriorityQueue()
+        self.jobQueue = JobQueue()
         self.position_history = []
         self._last_history_time = 0
 
@@ -141,7 +141,7 @@ class Drone:
                 self.setActiveJob(next_job)  # Ensure it's using the new job
             elif self.available and self.jobQueue.is_empty() and completed_job_type == "Initial Search":
                 self.missionState.on_search_traversal_complete(self.drone_id)
-            self.missionState.gui.updateJobs(self.drone_id, self.active_job, self.jobQueue.queue)
+            self.missionState.gui.updateJobs(self.drone_id, self.active_job, self.jobQueue.list_jobs())
     
     def setJobFailedUpload(self):
         if self.active_job is not None and self.active_job.upload_try_count < 3:

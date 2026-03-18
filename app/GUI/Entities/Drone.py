@@ -29,6 +29,17 @@ class Drone:
         self.id_of_job_with_path = None
         self.info_widget = DroneInfoBox(info_container, drone_id, self)
         self.job_info_container = jobInfoContainer(job_container, drone_id)
+        match drone_id:
+            case 1:
+                self.color = "red"
+            case 2:
+                self.color = "blue"
+            case 3:
+                self.color = "green"
+            case 4:
+                self.color = "yellow"
+            case _:
+                self.color = "gray"
 
         color_map = {1: "#e74c3c", 2: "#3498db", 3: "#2ecc71", 4: "#f1c40f"}
         self.color = color_map.get(drone_id, "#95a5a6")
@@ -115,7 +126,9 @@ class Drone:
                     if len(trimmed_path) > 1:
                         self.map_widget.set_path(self.active_job_path_id, trimmed_path, color=self.color, width=5)
             else:
-                self.map_widget.remove_path(self.active_job_path_id)
+                if self.active_job_path is not None:
+                    self.active_job_path.delete()
+                    self.active_job_path = None
                 self.active_job_start_pos = None
                 self.id_of_job_with_path = None
 

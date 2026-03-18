@@ -8,6 +8,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 
 from Utils.check_internet import has_internet
 from GUI.Entities.Drone import Drone
+from models.jobs.job import Job
 from GUI.Entities.POI import POI
 from GUI.Widgets.LeafletMap import LeafletMap
 from GUI.Widgets.ChatSidebar import ChatSidebar
@@ -284,6 +285,17 @@ class MapPage(QWidget):
 
     # ── Polygon ───────────────────────────────────────────────
 
+    def create_drone_job(self, job_name, drone_id, waypoints, spacing=0):
+        #convert waypoints to list of tuples
+        list_of_tuples = [tuple(i) for i in ast.literal_eval(waypoints)]
+
+        # draw path on map
+        path_obj = self.map_widget.set_path(position_list=list_of_tuples, width=5, color="red")
+        print("Job Created")
+        # create job object
+        job = Job(job_name, "pending", list_of_tuples, self.gui_ref.missionState, Job.NORMAL, path_obj)
+        self.jobs.append(job)
+
     def start_creating_polygon(self):
         if self.editing_polygon:
             # Finishing polygon editing
@@ -318,6 +330,27 @@ class MapPage(QWidget):
             self.place_gcs_button.setEnabled(False)
             self.polygon_edit_frame.setVisible(True)
             self.start_polygon_button.setText("Finish Creating Polygon")
+
+    def create_test_job(self):
+        job = Job(
+            "Debug Job",
+            "pending",
+            [
+                (28.6037837, -81.2018019),
+                (28.6037931, -81.2008148),
+                (28.6037366, -81.1983150),
+            ],
+            None,
+            Job.NORMAL,
+        )
+        print(job.start)
+        print(job.waypoints)
+        print(job.end)
+        self.map_widget.set_path(position_list=job.waypoints, width=5, color="red")
+        print("Job Created")
+
+    def get_polygon_points(self):
+        return self.polygon_points
 
     def undo_last_polygon_point(self):
         if len(self.polygon_points) == 0:
