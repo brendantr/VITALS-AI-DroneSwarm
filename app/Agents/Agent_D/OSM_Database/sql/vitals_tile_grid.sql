@@ -1,10 +1,6 @@
--- Creates PostGIS-side grid + counts for the mission polygon.
--- This moves the expensive spatial joins + aggregation out of Python.
+-- Creates PostGIS-side grid + counts for a mission polygon.
 
 CREATE SCHEMA IF NOT EXISTS vitals;
-
--- Helper: classify OSM 'highway' tag into the same buckets used in Python.
--- (Matches TerrainPreProcessing/query_disambiguation.py intent)
 
 CREATE OR REPLACE FUNCTION vitals.classify_highway(highway_value text)
 RETURNS text
@@ -20,14 +16,10 @@ AS $$
     WHEN lower(highway_value) IN (
       'footway','path','track','bridleway','pedestrian','cycleway'
     ) THEN 'pedestrian_path'
-    ELSE 'highway'  -- default unknowns to road, consistent with current Python
+    ELSE 'highway'
   END;
 $$;
 
--- Main: build a square grid (tile_size_m meters) covering the polygon bbox,
--- keep only tiles that intersect the polygon, and count OSM features per tile.
---
--- Returns tiles in EPSG:4326 (lon/lat) for direct use in Shapely/GUI.
 CREATE OR REPLACE FUNCTION vitals.get_tile_counts_4326(
   polygon_wkt_4326 text,
   tile_size_m integer DEFAULT 60

@@ -1,277 +1,127 @@
-from ...CostMaps.terrain_CostMap import find_extreme_coordinates, rectangle_side_lengths, add_meters_to_latitude, add_meters_to_longitude, Tile
-from ..ingestion.osmnx_handler import osmnx_load_rtree
-from ..postgis.postgis_handler import query_osm_features, postgis_load_rtree, query_osm_features_all, query_tile_counts_4326
-from ..ingestion.check_internet import has_internet
+from __future__ import annotations
+
+from Agent_D.CostMaps.terrain_CostMap import (
+    Tile,
+    find_extreme_coordinates,
+    rectangle_side_lengths,
+)
+from Agent_D.OSM_Database.postgis.postgis_handler import query_tile_counts_4326
 from rtree import index
-from shapely import Polygon
-import osmnx as ox
-import pandas as pd
-from sqlalchemy import create_engine, text
 
 DB_URL = "postgresql://renderer:renderer@localhost:5432/gis"
 engine = create_engine(DB_URL)
 
-    
-def get_features(rtree_index, useOSMNX: bool, osmnx_points, postGIS_points, search_tags):
+def _build_grid_from_tile_counts(tile_rows, search_tags):
+    if not tile_rows:
+        return None, None
 
-    if useOSMNX:
-        print("Getting information from OSMNX")
-        if not has_internet():
-            useOSMNX = False
-            print("No Internet! Attempting to use PostGIS database")
+    max_x = max(int(r.get("x_idx", 0)) for r in tile_rows)
+    max_y = max(int(r.get("y_idx", 0)) for r in tile_rows)
+    width = max_x + 1
+    height = max_y + 1
 
-        if useOSMNX:
-            try:
-                results = ox.features_from_bbox(osmnx_points, search_tags)
+    grid = [[Tile() for _ in range(width)] for _ in range(height)]
+    viable = []
 
-                # Check if results are empty and handle the case
-                if results is None or results.empty:
-                    print("OSMnx returned no features. Skipping OSMnx processing.")
-                    return False  # Prevents crash and allows fallback to PostGIS
-
-                #results.plot()
-                print(f"Loaded {len(results)} features into R-tree.")
-                osmnx_load_rtree(rtree_index, search_tags, results)
-                return True
-
-            except ox._errors.InsufficientResponseError:
-                print("OSMnx query returned no features. Area might be too small.")
-                return False  # Prevents crash and allows fallback to PostGIS
-
-            except Exception as e:
-                print(f"Unexpected OSMnx Error: {e}")
-                return False  # Prevents any unexpected crashes
-
-    # Handle PostGIS in the same way
-    if not useOSMNX:
-        print("Getting information from PostGIS database")
-        try:
-            print("Attempt to query POSTGIS")
-            info = query_osm_features_all(search_tags, postGIS_points)
-            print("Got past?")
-            if info is None or not info:
-                print("PostGIS returned no features. Skipping PostGIS processing.")
-                return False  # No data from PostGIS either
-
-            #plot_postGIS_data(info)
-            print(f"Loaded {len(info)} features into R-tree from PostGIS.")
-            postgis_load_rtree(rtree_index, info)
-            return True
-
-        except Exception as e:
-            print(f"Unexpected PostGIS Error: {e}")
-            return False  # Prevents any unexpected crashes
-
-    return True  # Ensures function exits gracefully
-    
-def _try_sql_search_area(polygon_points, search_tags, tile_size_m):
-    """Try building the grid entirely via the SQL function vitals.get_tile_counts_4326.
-
-    Returns (rtree_index, grid, viable_grid_positions) on success, or None if
-    the SQL function is not installed or produces no results.
-    """
-    try:
-        results = query_tile_counts_4326(polygon_points, tile_size_m)
-    except Exception as e:
-        print(f"SQL tile query failed: {e}")
-        return None
-
-    if not results:
-        return None
-
-    # Determine grid dimensions from the SQL result indices.
-    max_x = max(r["x_idx"] for r in results)
-    max_y = max(r["y_idx"] for r in results)
-    n_cols = max_x + 1
-    n_rows = max_y + 1
-
-    grid = [[Tile() for _ in range(n_cols)] for _ in range(n_rows)]
-
-    # Index SQL rows by (y_idx, x_idx) for fast lookup.
-    sql_lookup = {(r["y_idx"], r["x_idx"]): r for r in results}
-
-    rtree_index = index.Index()
-    viable_grid_positions = []
-    rtree_id = 0
-
-    for i in range(n_rows):
-        for j in range(n_cols):
-            tile = grid[i][j]
+    for y in range(height):
+        for x in range(width):
+            tile = grid[y][x]
             tile.contains_count = {tag: 0 for tag in search_tags}
-            tile.contains = {tag: list() for tag in search_tags}
+            tile.contains = {tag: [] for tag in search_tags}
             tile.total_count = 0
+            tile.in_searcharea = False
+            tile.polygon = None
 
-            r = sql_lookup.get((i, j))
-            if r is None:
-                # Tile not returned by SQL -> outside the mission polygon.
-                tile.in_searcharea = False
-                continue
+    for row in tile_rows:
+        x = int(row.get("x_idx", 0))
+        y = int(row.get("y_idx", 0))
+        tile = grid[y][x]
 
-            counts = r["counts"]
-            tile_polygon = r["tile_polygon"]
-            tile.polygon = tile_polygon
-            tile.in_searcharea = True
+        counts = row.get("counts", {})
+        building_ct = int(counts.get("building", 0))
+        water_ct = int(counts.get("water", 0))
+        highway_ct = int(counts.get("highway", 0))
+        ped_ct = int(counts.get("pedestrian_path", 0))
 
-            # Map SQL counts back to the search_tags expected by the rest of the code.
-            for tag in search_tags:
-                if tag == "building":
-                    cnt = counts.get("building", 0)
-                    tile.contains_count[tag] = cnt
-                    tile.contains[tag] = ["yes"] * cnt
-                    tile.total_count += cnt
-                elif tag == "water":
-                    cnt = counts.get("water", 0)
-                    tile.contains_count[tag] = cnt
-                    tile.contains[tag] = ["yes"] * cnt
-                    tile.total_count += cnt
-                elif tag == "highway":
-                    hw_cnt = counts.get("highway", 0)
-                    ped_cnt = counts.get("pedestrian_path", 0)
-                    total_hw = hw_cnt + ped_cnt
-                    tile.contains_count[tag] = total_hw
-                    # Use representative values that disambiguate() will
-                    # classify back into "highway" and "pedestrian_path".
-                    tile.contains[tag] = (
-                        ["residential"] * hw_cnt + ["footway"] * ped_cnt
-                    )
-                    tile.total_count += total_hw
-                else:
-                    # Generic fallback: treat as a count under its own name.
-                    cnt = counts.get(tag, 0)
-                    tile.contains_count[tag] = cnt
-                    tile.contains[tag] = ["yes"] * cnt
-                    tile.total_count += cnt
+        tile.polygon = row.get("tile_polygon")
+        tile.in_searcharea = True
 
-            viable_grid_positions.append((i, j))
+        if "building" in tile.contains_count:
+            tile.contains_count["building"] = building_ct
+        if "water" in tile.contains_count:
+            tile.contains_count["water"] = water_ct
+        if "highway" in tile.contains_count:
+            tile.contains_count["highway"] = highway_ct + ped_ct
+            tile.contains["highway"] = (["highway"] * highway_ct) + (["pedestrian_path"] * ped_ct)
 
-            # Populate the rtree so visualization still works.
-            feature = {
-                "osm_id": f"tile_{i}_{j}",
-                "geometry": tile_polygon,
-            }
-            for tag in search_tags:
-                if tile.contains_count.get(tag, 0) > 0:
-                    feature[tag] = tile.contains[tag][0]
-                else:
-                    feature[tag] = None
-            rtree_index.insert(rtree_id, tile_polygon.bounds, obj=feature)
-            rtree_id += 1
+        tile.total_count = int(row.get("total_count", building_ct + water_ct + highway_ct + ped_ct))
+        viable.append((y, x))
 
-    print(f"SQL path: built {n_rows}x{n_cols} grid with {len(viable_grid_positions)} viable tiles")
-    return rtree_index, grid, viable_grid_positions
+    return grid, viable
 
 
-def create_search_area(polygon_points, search_tags, useOSMX = True,maximum_square_size = 60, minimum_grid_size = 8):
+def _build_visual_rtree_from_tile_counts(tile_rows):
+    rtree_index = index.Index()
+    for idx, row in enumerate(tile_rows):
+        geom = row.get("tile_polygon")
+        if geom is None:
+            continue
+
+        counts = row.get("counts", {})
+        building_ct = int(counts.get("building", 0))
+        water_ct = int(counts.get("water", 0))
+        highway_ct = int(counts.get("highway", 0))
+        ped_ct = int(counts.get("pedestrian_path", 0))
+
+        # Keep the same keys visualizer expects from legacy geometry items.
+        item = {
+            "osm_id": f"tile_{row.get('x_idx', 0)}_{row.get('y_idx', 0)}",
+            "geometry": geom,
+            "building": building_ct if building_ct > 0 else None,
+            "water": water_ct if water_ct > 0 else None,
+            "highway": "highway" if highway_ct > 0 else ("pedestrian_path" if ped_ct > 0 else None),
+        }
+        rtree_index.insert(idx, geom.bounds, obj=item)
+
+    return rtree_index
+
+
+def create_search_area(
+    polygon_points,
+    search_tags,
+    useOSMX=False,
+    maximum_square_size=60,
+    minimum_grid_size=8,
+):
+    # Legacy OSMnx mode is intentionally removed; only SQL/PostGIS path remains.
+    if useOSMX:
+        print("OSMnx mode removed. Using PostGIS SQL tile pipeline.")
+
     extremes = find_extreme_coordinates(polygon_points)
-
-    top_left = (extremes["highest_latitude"],extremes["leftmost_longitude"])
+    top_left = (extremes["highest_latitude"], extremes["leftmost_longitude"])
     bottom_right = (extremes["lowest_latitude"], extremes["rightmost_longitude"])
 
-    # Calculate grid size
-    width, height = rectangle_side_lengths(top_left[0],top_left[1], bottom_right[0], bottom_right[1])
-    print(f"Rectangle width: {width:.2f} meters")
-    print(f"Rectangle height: {height:.2f} meters")
+    width_m, height_m = rectangle_side_lengths(top_left[0], top_left[1], bottom_right[0], bottom_right[1])
+    size = max(width_m, height_m)
 
-    # Use the max dimension for the grid cell size
-    size = max(width, height)
-    temp = size
-    level_count = 0
-
-    #The thing is that if temp > maximum_square_size, it won't split at all. I should set a minimum. 
-    #If the search area is < 8* maximum_square_size, override and turn the grid into an 8x8.
-    if size >= minimum_grid_size*maximum_square_size:
-        #Length wise, how long in meters should each square on the grid be? Right now it's 60
-        while temp > maximum_square_size:  # Ensuring tile size is reasonable
-            level_count += 1
-            temp /= 2
-        
-        grid_length = 2 ** level_count
+    if size >= minimum_grid_size * maximum_square_size:
+        temp = size
+        while temp > maximum_square_size:
+            temp /= 2.0
+        square_size = temp
     else:
-        temp = size/minimum_grid_size
-        grid_length = minimum_grid_size
+        square_size = size / float(minimum_grid_size)
 
-    square_size = temp
+    # SQL helper expects points as (lat, lon) tuples.
+    postgis_points = [(lat, lon) for lon, lat in polygon_points]
+    tile_rows = query_tile_counts_4326(postgis_points, tile_size_m=int(round(square_size)))
+    if not tile_rows:
+        print("PostGIS returned no tile rows; unable to create a search area.")
+        return None, None, None
 
-    print(f"Square Size (in metters): {square_size}")
+    grid, viable_grid_positions = _build_grid_from_tile_counts(tile_rows, search_tags)
+    if grid is None:
+        return None, None, None
 
-    # --- SQL-accelerated PostGIS path ---
-    # When not using OSMNX, try the SQL-based tile grid function first.
-    # This moves the expensive spatial joins + counting into PostgreSQL.
-    if not useOSMX or (useOSMX and not has_internet()):
-        if useOSMX and not has_internet():
-            print("No Internet! Attempting to use PostGIS database (SQL path)")
-        sql_result = _try_sql_search_area(polygon_points, search_tags, int(square_size))
-        if sql_result is not None:
-            return sql_result
-        print("SQL path unavailable, falling back to Python PostGIS path")
-
-    grid = [[Tile() for _ in range(grid_length)] for _ in range(grid_length)]
-
-    bottom_left, top_right = (extremes["lowest_latitude"],extremes["leftmost_longitude"]),(extremes["highest_latitude"],extremes["rightmost_longitude"])
-
-    osmnx_points = (*bottom_left[::-1], *top_right[::-1])
-    postGIS_points = [(lat,lon) for lon,lat in polygon_points]
-    #gather the data from osmnx
-    #results = ox.features_from_bbox(points,search_tags)
-    #results.plot()
-    rtree_index = index.Index()
-    #osmnx_load_rtree(rtree_index,search_tags,results)
-    success = get_features(rtree_index, useOSMX, osmnx_points,postGIS_points, search_tags)
-
-    if not success:
-        print("unable to create a search area")
-        return None,None,None
-
-    viable_grid_positions = fill_grid_data(rtree_index, grid, top_left, square_size, search_tags, postGIS_points)
-
+    rtree_index = _build_visual_rtree_from_tile_counts(tile_rows)
     return rtree_index, grid, viable_grid_positions
-    # Generate tiles and fetch OSM features
-
-
-def fill_grid_data(rtree_index, grid, top_left, square_size, search_tags,postGIS_points):
-    #Note. I need to make it so that if a square doesn't intersect with the search area, that it's marked as Unavailable. 
-    #This will let the drone know that although this grid is here, it's not part of the search area, and thus shouldn't be explored. 
-    count = 0
-    t_left = [0,0]
-    b_right = [0,0]
-    actual_search_area = Polygon(postGIS_points)
-    viable_grid_positions = []
-    for i in range(len(grid)):
-        t_left[0] = top_left[0] if i == 0 else add_meters_to_latitude(top_left[0],(i*(-square_size)))
-        b_right[0] = add_meters_to_latitude(top_left[0],((i+1)*(-square_size)))
-        for j in range(len(grid)):
-            t_left[1] = top_left[1] if j == 0 else add_meters_to_longitude(t_left[0], top_left[1], j*square_size)
-            b_right[1] = add_meters_to_longitude(b_right[0], top_left[1], (j+1)*square_size)
-            #'28.6178539,-81.2237312,#00FF00,marker,"Point # T_L"'
-            
-            b_left = [b_right[0], t_left[1]]
-            t_right = [t_left[0],b_right[1]]
-            
-            #minx, miny, maxx, maxy
-            #minLongitude, minLatitude, MaxLongitude, MaxLatitude
-            search_bb = (b_left[1],b_left[0],t_right[1],t_right[0])
-            result = list(rtree_index.intersection(search_bb,objects=True))
-            grid[i][j].contains_count = {tag: 0 for tag in search_tags}
-            grid[i][j].contains = {tag: list() for tag in search_tags}
-            grid[i][j].total_count = 0
-            for r in result:
-                data = r.object
-                for tag in search_tags:
-                        if tag not in data:
-                            continue
-                        if not pd.isna(data[tag]):
-                            #Only increase to the count, and add to the contains if it wasn't nan
-                            grid[i][j].contains_count[tag] += 1
-                            grid[i][j].total_count += 1
-                            grid[i][j].contains[tag].append(data[tag])
-                            #grid[i][j].contains[tag].append(data["geometry"])
-            #print(f"Total Count: {grid[i][j].total_count}")
-            flipped_coordinates = [(lon, lat) for lat, lon in [t_left,t_right,b_right,b_left]]
-            grid[i][j].polygon = Polygon(flipped_coordinates)
-            grid[i][j].in_searcharea = actual_search_area.intersects(grid[i][j].polygon)
-            count+= 1
-            if grid[i][j].in_searcharea:
-                viable_grid_positions.append((i,j))
-            #print(f'{t_left[0]},{t_left[1]},#00FF00,marker,"Point #{i},{j} T_L"')
-            #print(f'{b_right[0]},{b_right[1]},#00FF00,marker,"Point #{i},{j} B_R"')
-    return viable_grid_positions

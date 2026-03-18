@@ -3,7 +3,7 @@ version: "3.9"
 services:
   osm:
     image: overv/openstreetmap-tile-server
-    container_name: osm-server
+    container_name: vitals-osm-server
     ports:
       - "8080:80"
       - "5432:5432"

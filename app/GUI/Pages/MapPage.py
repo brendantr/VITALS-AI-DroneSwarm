@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIcon, QPixmap
 
+from Utils.check_internet import has_internet
 from GUI.Entities.Drone import Drone
 from GUI.Entities.POI import POI
 from GUI.Widgets.LeafletMap import LeafletMap

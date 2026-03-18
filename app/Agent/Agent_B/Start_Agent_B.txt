@@ -1,0 +1,3 @@
+source agent_b/.venv/bin/activate
+
+uvicorn agent_b.agent_b_service:app --host 0.0.0.0 --port 8081
