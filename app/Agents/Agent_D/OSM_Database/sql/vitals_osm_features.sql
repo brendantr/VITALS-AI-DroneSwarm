@@ -330,8 +330,8 @@ AS $$
             geom_3857 AS mission_3857,
             geom_4326 AS mission_4326
         FROM bounds,
-            generate_series(xmin, xmax, tile_size_m) WITH ORDINALITY AS gx(x, xi),
-            generate_series(ymin, ymax, tile_size_m) WITH ORDINALITY AS gy(y, yi)
+            generate_series(xmin::numeric, xmax::numeric, tile_size_m::numeric) WITH ORDINALITY AS gx(x, xi),
+            generate_series(ymin::numeric, ymax::numeric, tile_size_m::numeric) WITH ORDINALITY AS gy(y, yi)
     )
     SELECT
         x_idx,
