@@ -17,7 +17,7 @@ def _get_postgis_url() -> str:
         value = os.getenv(key)
         if value:
             return value
-    return "postgresql://renderer:renderer@localhost:5432/gis"
+    return "postgresql://renderer:renderer@18.220.206.190:5432/gis"
 
 
 def _sql_file_path() -> Path:
