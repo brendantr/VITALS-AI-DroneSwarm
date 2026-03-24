@@ -77,8 +77,8 @@ WITH
       ST_MakeEnvelope(gx.x, gy.y, gx.x + tile_size_m, gy.y + tile_size_m, 3857) AS tile_3857,
       mission_geom_3857
     FROM bounds,
-      generate_series(bounds.xmin, bounds.xmax, tile_size_m) WITH ORDINALITY AS gx(x, xi),
-      generate_series(bounds.ymin, bounds.ymax, tile_size_m) WITH ORDINALITY AS gy(y, yi)
+      generate_series(bounds.xmin::numeric, bounds.xmax::numeric, tile_size_m::numeric) WITH ORDINALITY AS gx(x, xi),
+      generate_series(bounds.ymin::numeric, bounds.ymax::numeric, tile_size_m::numeric) WITH ORDINALITY AS gy(y, yi)
   ),
   tiles AS (
     SELECT x_idx, y_idx, tile_3857
