@@ -13,7 +13,7 @@ from sqlalchemy.exc import OperationalError
 
 POSTGIS_URL = os.getenv(
     "VITALS_POSTGIS_URL",
-    "postgresql://renderer:renderer@localhost:5432/gis",
+    "postgresql://renderer:renderer@18.220.206.190:5432/gis",
 )
 
 
