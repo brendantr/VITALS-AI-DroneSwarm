@@ -22,12 +22,12 @@ jobs:
         docker compose version
 
     - name: Build Docker Compose services
-      working-directory: ./app/TerrainPreProcessing
+      working-directory: ./app
       run: |
         docker compose -f docker-compose.yml build
 
     - name: Start Docker Compose services
-      working-directory: ./app/TerrainPreProcessing
+      working-directory: ./app
       run: |
         docker compose -f docker-compose.yml up -d
 
@@ -37,7 +37,7 @@ jobs:
         sleep 30
 
     - name: Check running containers
-      working-directory: ./app/TerrainPreProcessing
+      working-directory: ./app
       run: |
         docker compose -f docker-compose.yml ps
 
@@ -52,7 +52,7 @@ jobs:
 
     - name: Show container logs on failure
       if: failure()
-      working-directory: ./app/TerrainPreProcessing
+      working-directory: ./app
       run: |
         docker compose -f docker-compose.yml logs
     
@@ -67,6 +67,6 @@ jobs:
 
     - name: Stop and remove Docker Compose services
       if: always()
-      working-directory: ./app/TerrainPreProcessing
+      working-directory: ./app
       run: |
         docker compose -f docker-compose.yml down
