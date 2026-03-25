@@ -3,6 +3,7 @@ matplotlib.use('QtAgg')
 
 import os
 import random
+from Agents.Agent_A.PerceptionProcessing.YoloDetector import YoloDetector
 from GUI.GUI import GUI
 from Dispatcher import Dispatcher
 import asyncio
@@ -15,7 +16,6 @@ from LangGraph import langChainMain
 import concurrent.futures
 from Utils import coordinate_estimation
 import heapq
-from Agents.Agent_A.PerceptionProcessing.YoloDetector import YoloDetector
 import cv2
 import threading
 from models.jobs.job_queue import JobQueue
