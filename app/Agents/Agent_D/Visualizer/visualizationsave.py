@@ -1,10 +1,6 @@
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString
 from Agent_D.CostMaps.terrain_CostMap import haversine
-<<<<<<<< HEAD:app/Agents/Agent_D/Visualizer/visualizationsave.py
 from Agent_D.Visualizer.disambiguation import disambiguate
-========
-from Agent_D.OSM_Database.query.query_disambiguation import disambiguate
->>>>>>>> e988daa (Merge branch 'agentD' into working):app/Agent/Agent_D/Visualizer/visualizationsave.py
 import matplotlib.colors as mcolors
 import numpy as np
 import geopandas as gpd
