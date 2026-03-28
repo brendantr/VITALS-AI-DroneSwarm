@@ -1,0 +1,3 @@
+[submodule "app/vision-edge"]
+	path = app/vision-edge
+	url = https://github.com/justinUCF/vitals-vision-edge.git

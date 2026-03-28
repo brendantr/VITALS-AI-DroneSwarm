@@ -2,8 +2,15 @@ import matplotlib
 matplotlib.use('QtAgg')
 
 import os
+import sys
 import random
-from Agents.Agent_A.PerceptionProcessing.YoloDetector import YoloDetector
+
+# Add vision-edge submodule to Python path (hyphenated dir name can't be imported directly)
+_vision_edge_src = os.path.join(os.path.dirname(__file__), "vision-edge", "src")
+if _vision_edge_src not in sys.path:
+    sys.path.insert(0, _vision_edge_src)
+
+from PerceptionProcessing.YoloDetector import YoloDetector
 from GUI.GUI import GUI
 from Dispatcher import Dispatcher
 import asyncio
