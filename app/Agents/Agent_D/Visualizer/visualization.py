@@ -234,7 +234,7 @@ class Interactive_Visualization:
         grid_ax = self.ax
         plt.xticks(rotation=45)  
         for i in range(len(grid)):
-            for j in range(len(grid)):
+            for j in range(len(grid[i])):
                 tile = grid[i][j]
                 if self.tile_length is None:
                     exterior_coords = list(tile.polygon.exterior.coords)
@@ -441,17 +441,17 @@ class Interactive_Visualization:
 
             plt.show(block=False)
 
-            # always generate a static plot
-            self.ax.figure.savefig(png_path, dpi=150, bbox_inches="tight")
+            # # always generate a static plot
+            # self.ax.figure.savefig(png_path, dpi=150, bbox_inches="tight")
 
-            # optionally generate animation too
-            try:
-                ani.save(gif_path, writer=animation.PillowWriter(fps=10))
-            except Exception as e:
-                print(f"Animation save skipped: {e}")
+            # # optionally generate animation too
+            # try:
+            #     ani.save(gif_path, writer=animation.PillowWriter(fps=10))
+            # except Exception as e:
+            #     print(f"Animation save skipped: {e}")
 
-            print(f"Plot generated: {png_path}")
-            print(f"Animation generated: {gif_path}")
+            # print(f"Plot generated: {png_path}")
+            # print(f"Animation generated: {gif_path}")
         pass
 
 
@@ -694,7 +694,7 @@ def plot_postGIS_data(rtree_index, grid = None, search_points = [], colors = {},
         grid_ax.set_picker(False)
         layer_list["grid"] = grid_ax
         for i in range(len(grid)):
-            for j in range(len(grid)):
+            for j in range(len(grid[i])):
                 tile = grid[i][j]
                 if tile_length is None:
                     exterior_coords = list(tile.polygon.exterior.coords)
@@ -837,7 +837,7 @@ def plot_search_area(rtree_index, grid, polygon_points):
         #overlay_gdf.plot(ax=ax, edgecolor="black", facecolor="red", alpha=0.5)
 
         for i in range(len(grid)):
-            for j in range(len(grid)):
+            for j in range(len(grid[i])):
                 tile = grid[i][j]
                 centroid = tile.polygon.centroid
                 # Annotate with the counts
@@ -879,7 +879,7 @@ def plot_search_area2(rtree_index, grid, polygon_points):
         #overlay_gdf.plot(ax=ax, edgecolor="black", facecolor="red", alpha=0.5)
 
         for i in range(len(grid)):
-            for j in range(len(grid)):
+            for j in range(len(grid[i])):
                 tile = grid[i][j]
                 centroid = tile.polygon.centroid
                 # Annotate with the counts
