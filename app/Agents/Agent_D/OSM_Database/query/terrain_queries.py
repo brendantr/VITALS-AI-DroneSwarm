@@ -113,8 +113,8 @@ def create_search_area(
     else:
         square_size = size / float(minimum_grid_size)
 
-    # SQL helper expects points as (lat, lon) tuples.
-    postgis_points = [(lat, lon) for lon, lat in polygon_points]
+    # polygon_points arrives as (lat, lon) tuples from missionState — pass through as-is.
+    postgis_points = polygon_points
     tile_rows = query_tile_counts_4326(postgis_points, tile_size_m=int(round(square_size)))
     if not tile_rows:
         print("PostGIS returned no tile rows; unable to create a search area.")
