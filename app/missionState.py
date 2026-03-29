@@ -31,6 +31,7 @@ from models.jobs.job import Job
 class Drone:
     drone_id = None
     system_status = None
+    custom_mode = None
     latitude = None # Note: this is not a float, it is a int with 7 decimal places
     longitude = None # Note: this is not a float, it is a int with 7 decimal places
     altitude = None # millimeters above sea level
@@ -90,8 +91,10 @@ class Drone:
         self.yaw = yaw
         self.missionState.gui.updateDroneTelemetry(self.drone_id, roll, pitch, yaw)
 
-    def updateStatus(self, system_status):
+    def updateStatus(self, system_status, custom_mode=None):
         self.system_status = system_status
+        if custom_mode is not None:
+            self.custom_mode = custom_mode
         self.missionState.gui.updateDroneStatus(self.drone_id, system_status)
     
     def addJob(self, job):
@@ -401,13 +404,13 @@ class missionState:
     def getMissionPolygon(self):
         return self.missionPolygon
 
-    def updateDroneStatus(self, drone_id, system_status):
-        # check if drone exists yet 
+    def updateDroneStatus(self, drone_id, system_status, custom_mode=None):
+        # check if drone exists yet
         drone = next((d for d in self.drones if d.drone_id == drone_id), None)
         if drone is None:
             self.addDrone(drone_id, system_status)
         else:
-            drone.updateStatus(system_status)
+            drone.updateStatus(system_status, custom_mode)
     
     def getDrones(self):
         return self.drones

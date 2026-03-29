@@ -140,7 +140,7 @@ class Dispatcher:
                         if not heartbeat_debug_printed:
                             print(f"Receiving HEARTBEAT from system {drone_id}")
                             heartbeat_debug_printed = True
-                        self.missionState.updateDroneStatus(drone_id, msg.system_status)
+                        self.missionState.updateDroneStatus(drone_id, msg.system_status, msg.custom_mode)
 
                     elif msg_type == "GLOBAL_POSITION_INT":
                         if not position_debug_printed:
@@ -281,10 +281,10 @@ class Dispatcher:
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             4  # GUIDED mode
         )
-        
+
         if not await self.wait_for_mode(drone_id, "GUIDED"):
             print(f"Failed to switch drone {drone_id} to GUIDED mode before mission upload!")
-            return
+            return False
 
         # Clear current mission
         print(f"Clearing current mission for drone {drone_id}...")
@@ -292,6 +292,7 @@ class Dispatcher:
         self.unhandled_clears.append(drone_id)
 
         await asyncio.sleep(1)  # Allow time for mission clearing
+        return True
 
     # ── Mission Upload Protocol ─────────────────────────────────────────
 
@@ -596,7 +597,11 @@ class Dispatcher:
 
     
     async def wait_for_mode(self, drone_id, target_mode, timeout=10):
-        """Wait until the drone changes to the desired mode."""
+        """Wait until the drone changes to the desired mode.
+
+        Checks the custom_mode stored by receive_packets() from heartbeats
+        rather than reading messages directly (which would race with receive_packets).
+        """
         print(f"Waiting for drone {drone_id} to switch to {target_mode} mode...")
         start_time = time.time()
         mode_mapping = {
@@ -609,13 +614,12 @@ class Dispatcher:
         if target_mode_id is None:
             print(f"Invalid target mode: {target_mode}")
             return False
-        
+
         while time.time() - start_time < timeout:
-            msg = self.master.recv_match(type="HEARTBEAT", blocking=False)
-            if msg and msg.get_srcSystem() == drone_id:
-                if msg.custom_mode == target_mode_id:
-                    print(f"Drone {drone_id} is now in {target_mode} mode!")
-                    return True
+            drone = next((d for d in self.missionState.drones if d.drone_id == drone_id), None)
+            if drone and drone.custom_mode == target_mode_id:
+                print(f"Drone {drone_id} is now in {target_mode} mode!")
+                return True
             await asyncio.sleep(0.5)
         print(f"Warning: Drone {drone_id} did not switch to {target_mode} mode within timeout!")
         return False
