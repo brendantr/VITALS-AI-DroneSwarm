@@ -37,7 +37,7 @@ class Drone_Path_Navigator:
 
         self.start_textbox.set_val(f'{self.start_index+1}')  # Update the start index in the textbox
         self.end_textbox.set_val(f'{self.end_index+1}')  # Update the end index in the textbox
-        plt.draw()
+        self.ax.figure.canvas.draw_idle()
         pass
 
     def set_start_index(self, text):
@@ -97,27 +97,36 @@ class Drone_Path_Navigator:
         """
         self.button_ax = plt.axes(rect)
         self.button_ax.set_zorder(100)
-        self.button = Button(self.button_ax,f'Drone {id+1} path', color=self.drone_color)
+        self.button = Button(self.button_ax,f'Drone {id+1} path', color=self.drone_color, hovercolor='#533483')
+        self.button.label.set_color('#e0e0e0')
         self.interactive.button_store[f"drone{id}button"] = self.button
 
         def toggle_path(event):
             current_visibility = self.interactive.layer_visible[self.layer_name]
             self.interactive.layer_visible[self.layer_name] = not current_visibility
-            self.button.color = self.drone_color if self.interactive.layer_visible[self.layer_name] else "red"
+            self.button.color = self.drone_color if self.interactive.layer_visible[self.layer_name] else "#e94560"
             #self.ax.get_figure().canvas.draw()
             for component in self.personal_components:
                 component.set_visible(self.interactive.layer_visible[self.layer_name])
-            plt.draw()
+            self.ax.figure.canvas.draw_idle()
 
         self.button.on_clicked(toggle_path)
         
         
-        self.start_textbox_ax = plt.axes([rect[0]+0.075,rect[1]-0.025,0.025,0.025])
-        self.start_textbox = TextBox(self.start_textbox_ax, 'Start (1 to {}):'.format(len(path)), initial=str(len(path)))
+        self.start_textbox_ax = plt.axes([rect[0]+0.10,rect[1]-0.025,0.04,0.02])
+        self.start_textbox_ax.set_facecolor('#16213e')
+        self.start_textbox = TextBox(self.start_textbox_ax, 'Start (1-{}):'.format(len(path)), initial=str(len(path)),
+                                      color='#0f3460', hovercolor='#1a1a2e', textalignment='center')
+        self.start_textbox.label.set_color('#aaaaaa')
+        self.start_textbox.text_disp.set_color('#e0e0e0')
         self.start_textbox.on_submit(self.set_start_index)
 
-        self.end_textbox_ax = plt.axes([rect[0]+0.075,rect[1]-0.05,0.025,0.025])
-        self.end_textbox = TextBox(self.end_textbox_ax, 'End (1 to {}):'.format(len(path)), initial=str(len(path)))
+        self.end_textbox_ax = plt.axes([rect[0]+0.10,rect[1]-0.05,0.04,0.02])
+        self.end_textbox_ax.set_facecolor('#16213e')
+        self.end_textbox = TextBox(self.end_textbox_ax, 'End (1-{}):'.format(len(path)), initial=str(len(path)),
+                                    color='#0f3460', hovercolor='#1a1a2e', textalignment='center')
+        self.end_textbox.label.set_color('#aaaaaa')
+        self.end_textbox.text_disp.set_color('#e0e0e0')
         self.end_textbox.on_submit(self.set_end_index)
 
         self.traced_path, = self.ax.plot([], [], alpha=0.8,color = drone_color,linewidth=4)  # Traced path
@@ -243,13 +252,13 @@ class Interactive_Visualization:
                 x, y = tile.polygon.exterior.xy  # Get the coordinates of the polygon
                 tile_color = mix_tile_colors(tile)
                 
-                patches = grid_ax.fill(x, y, edgecolor='black', facecolor=tile_color, alpha=0.75, linewidth=1)
+                patches = grid_ax.fill(x, y, edgecolor='#2a2a4a', facecolor=tile_color, alpha=0.75, linewidth=1)
                 for p in patches:
                     current_components.append(p)
                 #current_components
         self.create_layer("grid",current_components)
         annotation_text = f"Tile Length: {self.tile_length:.2f} meters"
-        grid_ax.set_title(f"Tile Length: {self.tile_length:.2f} meters", fontsize=10, fontweight='bold', color='black')
+        grid_ax.set_title(f"Tile Length: {self.tile_length:.2f} meters", fontsize=10, fontweight='bold', color='#e0e0e0')
         #grid_ax.annotate(annotation_text, xy=(0.1, 0.95), xycoords='figure fraction', 
         #    ha='left', va='top', fontsize=10, color='black', 
         #    fontweight='bold', bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
@@ -259,7 +268,7 @@ class Interactive_Visualization:
         new_polygon = Polygon(flipped_coords)
         new_polygon_gdf = gpd.GeoDataFrame(geometry=[new_polygon])
         outline_ax = self.ax
-        o = new_polygon_gdf.plot(ax=outline_ax, edgecolor="black", facecolor="none", alpha=1, linewidth = 3)
+        o = new_polygon_gdf.plot(ax=outline_ax, edgecolor="white", facecolor="none", alpha=0.6, linewidth = 3)
         patch_collections = [child for child in o.get_children() if isinstance(child,col.PatchCollection) and child not in self.layer_components["geometry"]]
         self.create_layer("outline",patch_collections)
 
@@ -267,16 +276,17 @@ class Interactive_Visualization:
         def toggle_grid_visibility(layer_name, event, button):
             current_visibility = self.layer_visible[layer_name]
             self.layer_visible[layer_name] = not current_visibility
-            button.color = "green" if self.layer_visible[name] else "red"
+            button.color = "#0f3460" if self.layer_visible[name] else "#e94560"
             #self.ax.get_figure().canvas.draw()
             print(f"Layer Name: {layer_name}, Contents: {self.layer_components[layer_name]}")
             for component in self.layer_components[layer_name]:
                 component.set_visible(self.layer_visible[layer_name])
-            plt.draw()
+            self.ax.figure.canvas.draw_idle()
 
         button_ax = plt.axes(rect)
         button_ax.set_zorder(100)
-        toggle_button = Button(button_ax, name,color='green')
+        toggle_button = Button(button_ax, name, color='#0f3460', hovercolor='#533483')
+        toggle_button.label.set_color('#e0e0e0')
         name = name.lower()
         toggle_button.on_clicked(lambda event: toggle_grid_visibility(name, event, toggle_button))
         self.button_store[name] = toggle_button
@@ -287,7 +297,7 @@ class Interactive_Visualization:
             if len(path) > 1: 
                 color = self.drone_colors[drone_id]
                 new_nav = Drone_Path_Navigator(self)
-                new_nav.create_ui([0, 0.85-i*0.1, 0.1, 0.05], drone_id, path,color)
+                new_nav.create_ui([0.01, 0.85-i*0.12, 0.13, 0.04], drone_id, path,color)
                 # Assign color based on the drone
         pass
 
@@ -349,10 +359,19 @@ class Interactive_Visualization:
         # Convert RGBA tuples to hexadecimal color strings for plotting
         gdf["color_hex"] = gdf["color"].apply(lambda rgba: mcolors.to_hex(rgba))
         
-        ax = gdf.plot(color=gdf["color_hex"], edgecolor="black", alpha=1)
+        ax = gdf.plot(color=gdf["color_hex"], edgecolor="#2a2a4a", alpha=1)
         self.ax = ax
 
-        
+        # Apply dark theme
+        fig = ax.get_figure()
+        fig.patch.set_facecolor('#1a1a2e')
+        ax.set_facecolor('#16213e')
+        ax.tick_params(colors='#aaaaaa')
+        ax.xaxis.label.set_color('#e0e0e0')
+        ax.yaxis.label.set_color('#e0e0e0')
+        for spine in ax.spines.values():
+            spine.set_edgecolor('#0f3460')
+
         # Create a new list to store the cloned patches
         patch_collections = [
             child for child in ax.get_children()
@@ -431,8 +450,7 @@ class Interactive_Visualization:
         #plt.show needs to be in here.
         # Store figure reference on self to prevent garbage collection of buttons/animations
         self._fig = self.ax.get_figure()
-        plt.show(block=False)
-        return None
+        return self._fig
 
 
 

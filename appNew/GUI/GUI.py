@@ -236,17 +236,6 @@ class GUI:
         event.wait(timeout=30)
         return result[0]
 
-    def showTraversalCompleteDialog(self, drone_id):
-        """Thread-safe: show traversal complete dialog on the main thread."""
-        def _show():
-            from GUI.Entities.POI import TraversalCompleteDialog
-            dialog = TraversalCompleteDialog(drone_id, self)
-            dialog.accepted.connect(lambda: self.missionState.end_mission())
-            dialog.rejected.connect(lambda: self.missionState.repeat_search_traversal(drone_id))
-            dialog.show()
-            self._traversal_dialog = dialog  # prevent GC
-        self._invoker.invoke(_show)
-
     # ── Chat ──────────────────────────────────────────────
 
     def create_system_chat_message(self, text):
@@ -259,26 +248,54 @@ class GUI:
 
     def start_adding_detection_points(self):
         self.isAddingDetectionPoints = True
-        self.map_page.map_widget.add_right_click_menu_command(
-            "Finish Adding Detection Points", self.finish_adding_detection_points
-        )
+        self.map_page.map_widget.marker_right_clicked.connect(self._on_detection_marker_right_click)
 
     def add_detection_point(self, coords):
         self.detection_points.append(coords)
-        marker_id = self.map_page.map_widget.add_marker(coords["lat"], coords["lon"], "Detection Point")
+        marker_id = self.map_page.map_widget.add_marker(
+            coords["lat"], coords["lon"], "Detection Point", icon="detection"
+        )
         self.detection_point_marker_ids.append(marker_id)
+
+    def remove_detection_point(self, marker_id):
+        """Remove a specific detection point by its marker ID."""
+        if marker_id in self.detection_point_marker_ids:
+            idx = self.detection_point_marker_ids.index(marker_id)
+            self.map_page.map_widget.remove_marker(marker_id)
+            self.detection_point_marker_ids.pop(idx)
+            self.detection_points.pop(idx)
+
+    def _on_detection_marker_right_click(self, marker_id):
+        """Show a context menu to remove a right-clicked detection point marker."""
+        if not self.isAddingDetectionPoints:
+            return
+        if marker_id not in self.detection_point_marker_ids:
+            return
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QCursor
+        menu = QMenu()
+        menu.setStyleSheet(
+            "QMenu { background-color: #16213e; color: #e0e0e0; "
+            "border: 1px solid #0f3460; border-radius: 4px; }"
+            "QMenu::item:selected { background-color: #533483; }"
+        )
+        remove_action = menu.addAction("Remove Detection Point")
+        action = menu.exec(QCursor.pos())
+        if action == remove_action:
+            self.remove_detection_point(marker_id)
 
     def finish_adding_detection_points(self):
         self.isAddingDetectionPoints = False
-        self.map_page.map_widget.remove_right_click_menu_command("Finish Adding Detection Points")
+        try:
+            self.map_page.map_widget.marker_right_clicked.disconnect(self._on_detection_marker_right_click)
+        except TypeError:
+            pass
 
         for marker_id in self.detection_point_marker_ids:
             self.map_page.map_widget.remove_marker(marker_id)
         self.detection_point_marker_ids = []
 
         self.missionState.setDetectionPoints(self.detection_points)
-        self.create_system_chat_message("Setup Complete. You can now begin the mission.")
-        self.map_page.end_mission_button.setEnabled(True)
 
     # ── Debug functions ───────────────────────────────────
 
@@ -335,13 +352,28 @@ class GUI:
     # ── Mission control ───────────────────────────────────
 
     def call_start_mission(self):
-        if not self.missionStarted:
-            self.missionStarted = True
-            self.missionState.startSearchMission()
-            self.create_system_chat_message("Mission started successfully!")
-            self.map_page.end_mission_button.setText("End Mission")
-            self.map_page.end_mission_button.clicked.disconnect()
-            self.map_page.end_mission_button.clicked.connect(self.missionState.end_mission)
+        if self.missionStarted:
+            return
+        # Simulation mode: two-phase button (Place Detection Points → Start Mission)
+        if self.isSimulation and not self.isAddingDetectionPoints:
+            self.start_adding_detection_points()
+            self.map_page.end_mission_button.setText("Start Mission")
+            self.create_system_chat_message(
+                "Click on the map to place detection points. "
+                "Right-click a point to remove it. "
+                "Press 'Start Mission' when ready."
+            )
+            return
+        # Finalize detection points if in simulation placement mode
+        if self.isSimulation and self.isAddingDetectionPoints:
+            self.finish_adding_detection_points()
+        # Start the mission
+        self.missionStarted = True
+        self.missionState.startSearchMission()
+        self.create_system_chat_message("Mission started successfully!")
+        self.map_page.end_mission_button.setText("End Mission")
+        self.map_page.end_mission_button.clicked.disconnect()
+        self.map_page.end_mission_button.clicked.connect(self.missionState.end_mission)
 
     def enter_mission_ended_state(self):
         """Grey out controls and switch to mission-ended review mode."""

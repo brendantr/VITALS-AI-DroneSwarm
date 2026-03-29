@@ -36,38 +36,6 @@ class POI:
         dialog.exec()
 
 
-class TraversalCompleteDialog(QDialog):
-    def __init__(self, drone_id, gui_ref, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(f"Drone {drone_id} - Search Complete")
-        self.setFixedSize(400, 200)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-
-        layout = QVBoxLayout(self)
-
-        label = QLabel(f"Drone {drone_id} has completed its search traversal.\nEnd the mission or repeat the search path?")
-        label.setStyleSheet("font-size: 14px;")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setWordWrap(True)
-        layout.addWidget(label)
-
-        layout.addSpacing(20)
-
-        btn_layout = QHBoxLayout()
-
-        end_btn = QPushButton("End Mission")
-        end_btn.setProperty("cssClass", "danger")
-        end_btn.clicked.connect(self.accept)
-        btn_layout.addWidget(end_btn)
-
-        repeat_btn = QPushButton("Repeat Traversal")
-        repeat_btn.setProperty("cssClass", "primary")
-        repeat_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(repeat_btn)
-
-        layout.addLayout(btn_layout)
-
-
 class POIDetailDialog(QDialog):
     def __init__(self, poi, gui_ref, parent=None):
         super().__init__(parent)

@@ -20,6 +20,7 @@ class _MapBridge(QObject):
     map_right_clicked = pyqtSignal(float, float)
     marker_clicked = pyqtSignal(str)
     map_mouse_move = pyqtSignal(float, float)
+    marker_right_clicked = pyqtSignal(str)
     map_ready = pyqtSignal()
 
     @pyqtSlot(float, float)
@@ -33,6 +34,10 @@ class _MapBridge(QObject):
     @pyqtSlot(str)
     def onMarkerClick(self, marker_id):
         self.marker_clicked.emit(marker_id)
+
+    @pyqtSlot(str)
+    def onMarkerRightClick(self, marker_id):
+        self.marker_right_clicked.emit(marker_id)
 
     @pyqtSlot(float, float)
     def onMapMouseMove(self, lat, lon):
@@ -103,6 +108,7 @@ var markers = {};
 var paths = {};
 var polygons = {};
 var markerCounter = 0;
+var markerRightClicked = false;
 
 // ── Icons using actual image assets ─────────────────
 var droneIcon = L.icon({
@@ -153,6 +159,10 @@ function initMap() {
     });
 
     map.on('contextmenu', function(e) {
+        if (markerRightClicked) {
+            markerRightClicked = false;
+            return;
+        }
         if (bridge) bridge.onMapRightClick(e.latlng.lat, e.latlng.lng);
     });
 
@@ -304,6 +314,7 @@ class LeafletMap(QWidget):
     map_clicked = pyqtSignal(float, float)
     map_right_clicked = pyqtSignal(float, float)
     marker_clicked = pyqtSignal(str)
+    marker_right_clicked = pyqtSignal(str)
     map_mouse_move = pyqtSignal(float, float)
 
     def __init__(self, parent=None):
@@ -321,6 +332,7 @@ class LeafletMap(QWidget):
         self._bridge.map_clicked.connect(self._on_map_click)
         self._bridge.map_right_clicked.connect(self._on_right_click)
         self._bridge.marker_clicked.connect(self.marker_clicked.emit)
+        self._bridge.marker_right_clicked.connect(self.marker_right_clicked.emit)
         self._bridge.map_mouse_move.connect(self.map_mouse_move.emit)
         self._bridge.map_ready.connect(self._on_ready)
 
@@ -419,6 +431,7 @@ class LeafletMap(QWidget):
                 // Rebind click handler with the Python-assigned ID
                 marker.off('click');
                 marker.on('click', function() {{ if (bridge) bridge.onMarkerClick('{py_id}'); }});
+                marker.on('contextmenu', function(e) {{ markerRightClicked = true; if (bridge) bridge.onMarkerRightClick('{py_id}'); }});
             }})();
         """)
         return py_id

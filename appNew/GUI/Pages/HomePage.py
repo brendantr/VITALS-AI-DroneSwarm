@@ -15,23 +15,12 @@ class HomePage(QWidget):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Lockheed Martin Logo
-        lm_logo_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "lockheed_martin_logo.png")
-        if os.path.exists(lm_logo_path):
-            lm_label = QLabel()
-            lm_pixmap = QPixmap(lm_logo_path).scaled(
-                400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-            )
-            lm_label.setPixmap(lm_pixmap)
-            lm_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(lm_label)
-
-        # VITALS Logo (replaces welcome text)
+        # VITALS Logo
         vitals_logo_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "VITALS_LOGO.png")
         if os.path.exists(vitals_logo_path):
             vitals_label = QLabel()
             vitals_pixmap = QPixmap(vitals_logo_path).scaled(
-                200, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                600, 600, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
             vitals_label.setPixmap(vitals_pixmap)
             vitals_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
