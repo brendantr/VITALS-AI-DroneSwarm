@@ -236,6 +236,8 @@ class Interactive_Visualization:
         for i in range(len(grid)):
             for j in range(len(grid[i])):
                 tile = grid[i][j]
+                if tile is None or tile.polygon is None:
+                    continue
                 if self.tile_length is None:
                     exterior_coords = list(tile.polygon.exterior.coords)
                     first,second = exterior_coords[:2]
@@ -696,6 +698,8 @@ def plot_postGIS_data(rtree_index, grid = None, search_points = [], colors = {},
         for i in range(len(grid)):
             for j in range(len(grid[i])):
                 tile = grid[i][j]
+                if tile is None or tile.polygon is None:
+                    continue
                 if tile_length is None:
                     exterior_coords = list(tile.polygon.exterior.coords)
                     first,second = exterior_coords[:2]
@@ -839,6 +843,8 @@ def plot_search_area(rtree_index, grid, polygon_points):
         for i in range(len(grid)):
             for j in range(len(grid[i])):
                 tile = grid[i][j]
+                if tile is None or tile.polygon is None:
+                    continue
                 centroid = tile.polygon.centroid
                 # Annotate with the counts
                 text = f"{tile.contains_count['building']},{tile.contains_count['water']}"
@@ -881,6 +887,8 @@ def plot_search_area2(rtree_index, grid, polygon_points):
         for i in range(len(grid)):
             for j in range(len(grid[i])):
                 tile = grid[i][j]
+                if tile is None or tile.polygon is None:
+                    continue
                 centroid = tile.polygon.centroid
                 # Annotate with the counts
                 text = f"{tile.contains_count['building']},{tile.contains_count['water']}"
