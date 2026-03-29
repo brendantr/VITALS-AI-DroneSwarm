@@ -200,11 +200,9 @@ class DroneSettingsDialog(QDialog):
         starting_alt = drone_ref.gui_ref.missionState.get_drone_operatingAltitude(drone_id)
         starting_model = drone_ref.gui_ref.missionState.get_drone_vision_model(drone_id)
         available_models = []
-        models_dir = os.path.join(os.path.dirname(__file__), "..", "..", "vision-edge", "yolo_models")
-        if os.path.isdir(models_dir):
-            for filename in os.listdir(models_dir):
-                if filename.endswith(".pt"):
-                    available_models.append(filename[:-3])
+        for filename in os.listdir("./vision-edge/yolo_models/"):
+            if filename.endswith(".pt"):
+                available_models.append(filename[:-3])
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
