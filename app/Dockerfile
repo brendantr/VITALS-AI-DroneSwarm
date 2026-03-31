@@ -38,5 +38,3 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # 5. Copy the entire app directory
 COPY . .
 
-# 6. Run the application
-CMD ["python3", "missionState.py"]
