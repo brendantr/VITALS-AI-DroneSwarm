@@ -4,6 +4,7 @@ matplotlib.use('QtAgg')
 import os
 import sys
 import random
+import requests
 
 # Add vision-edge submodule to Python path (hyphenated dir name can't be imported directly)
 _vision_edge_src = os.path.join(os.path.dirname(__file__), "vision-edge", "src")
@@ -27,6 +28,9 @@ import cv2
 import threading
 from models.jobs.job_queue import JobQueue
 from models.jobs.job import Job
+
+API_ENDPOINT = "https://ikh1sc3052.execute-api.us-east-2.amazonaws.com/default/"
+API_KEY = "uLvKjXwS1B0uAXh7Uteu6dOJWyCerhx5GW2lrZ64"
 
 class Drone:
     drone_id = None
@@ -232,6 +236,31 @@ class missionState:
         self.detectionPoints = []
         self.visualization_ready = False
 
+    @staticmethod
+    def toggle_database(action):
+        """Sends a start/stop command to the VITALS OSM EC2 instance."""
+
+        headers = {
+                "x-api-key": API_KEY,
+                "Content-Type": "application/json"
+        }
+
+        payload = {"action": action.lower()}
+
+        try:
+            print(f"[*] Sending {action.upper()} request to OSM Database...")
+            response = requests.post(API_ENDPOINT, json=payload, headers=headers)
+
+            if response.status_code == 200:
+                result = response.json()
+                print(f"[+] Success: {result.get('status', 'Command executed')}")
+            else:
+                print(f"[-] Error {response.status_code}: {response.text}")
+
+        except requests.exceptions.RequestException as e:
+            print(f"[-] Connection failed: {e}")
+
+    
     def reset_for_new_mission(self):
         """Reset missionState for a new mission while preserving MAVLink connection."""
         self.pois = []
@@ -684,7 +713,13 @@ class missionState:
         
 
 if __name__ == "__main__":
+    missionState.toggle_database('start')
+    
     gui = GUI()
     missionState = missionState(gui)
     gui.link_mission_state(missionState)
-    gui.run()
+    
+    try:
+        gui.run()
+    finally:
+        missionState.toggle_database('stop')
