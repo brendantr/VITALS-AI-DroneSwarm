@@ -3,16 +3,23 @@ networks:
     driver: bridge
 services:
   database:
-    image: postgres:13
+    image: overv/openstreetmap-tile-server
+    container_name: vitals-osm-database
     environment:
+      THREADS: 2
+      OSM2PGSQL_EXTRA_ARGS: "-C 1000"
       POSTGRES_USER: vitals_user
       POSTGRES_PASSWORD: vitals_password
     ports:
       - "5432:5432"
+      - "8080:80"
     networks:
       - vitals-network
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - osm-data:/data/database
+      - osm-tiles:/data/tiles
+    shm_size: "1gb"
+    command: run
   vitals-gcs:
     image: gersh01/vitals-gcs:latest
     ports:
@@ -21,31 +28,7 @@ services:
       - vitals-network
     depends_on:
       - database
-  agent-a:
-    image: gersh01/agent-a
-    networks:
-      - vitals-network
-    depends_on:
-      - vitals-gcs
-  agent-b:
-    image: gersh01/agent-b
-    networks:
-      - vitals-network
-    depends_on:
-      - agent-a
-  agent-c:
-    image: gersh01/agent-c
-    networks:
-      - vitals-network
-    depends_on:
-      - agent-b
-  agent-d:
-    image: gersh01/agent-d
-    networks:
-      - vitals-network
-    depends_on:
-      - agent-c
-
-
+    command: ["python", "missionState.py"]
 volumes:
-  postgres_data:
+  osm-data:
+  osm-tiles:

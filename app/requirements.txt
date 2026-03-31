@@ -4,7 +4,7 @@ ollama
 #  - Client library to call a local LLM (chat/model) for assistant/tool-call style interactions
 ultralytics
 #  - YOLO/Ultralytics package for object detection models (training and inference)
-opencv-python
+opencv-python-headless
 #  - OpenCV bindings for image processing and camera/vision utilities
 mcp
 #  - Custom internal package for MCP backends and tools (local path package)
