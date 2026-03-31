@@ -1,14 +1,13 @@
 import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QDialog, QLineEdit, QSpinBox, QDoubleSpinBox
+    QScrollArea, QFrame, QDialog, QLineEdit, QSpinBox, QDoubleSpinBox,
+    QTabWidget
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIcon, QPixmap
 
-from Utils.check_internet import has_internet
 from GUI.Entities.Drone import Drone
-from models.jobs.job import Job
 from GUI.Entities.POI import POI
 from GUI.Widgets.LeafletMap import LeafletMap
 from GUI.Widgets.ChatSidebar import ChatSidebar
@@ -161,18 +160,30 @@ class MapPage(QWidget):
         main_layout.addWidget(sidebar)
 
         # ═══════════════════════════════════════════════════════
-        # CENTER AREA (map + bottom job frame)
+        # CENTER AREA (tab widget + bottom job frame)
         # ═══════════════════════════════════════════════════════
         center = QWidget()
         center_layout = QVBoxLayout(center)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(0)
 
-        # Map
+        # Tab widget for map and visualizations
+        self.center_tabs = QTabWidget()
+        self.center_tabs.setStyleSheet(
+            "QTabWidget::pane { border: none; }"
+            "QTabBar::tab { background: #16213e; color: #aaa; padding: 6px 16px; "
+            "border: 1px solid #0f3460; border-bottom: none; margin-right: 2px; }"
+            "QTabBar::tab:selected { background: #1a1a2e; color: #e0e0e0; }"
+            "QTabBar::tab:hover { background: #0f3460; color: #e0e0e0; }"
+        )
+
+        # Map tab
         self.map_widget = LeafletMap()
         self.map_widget.map_clicked.connect(self.left_click_event)
         self.map_widget.set_position(28.5477810, -80.8481593)
-        center_layout.addWidget(self.map_widget, stretch=2)
+        self.center_tabs.addTab(self.map_widget, "Map")
+
+        center_layout.addWidget(self.center_tabs, stretch=2)
 
         # Bottom frame for job info
         self.bottom_frame = QFrame()
@@ -285,19 +296,13 @@ class MapPage(QWidget):
 
     # ── Polygon ───────────────────────────────────────────────
 
-    def create_drone_job(self, job_name, drone_id, waypoints, spacing=0):
-        #convert waypoints to list of tuples
-        list_of_tuples = [tuple(i) for i in ast.literal_eval(waypoints)]
-
-        # draw path on map
-        path_obj = self.map_widget.set_path(position_list=list_of_tuples, width=5, color="red")
-        print("Job Created")
-        # create job object
-        job = Job(job_name, "pending", list_of_tuples, self.gui_ref.missionState, Job.NORMAL, path_obj)
-        self.jobs.append(job)
-
     def start_creating_polygon(self):
         if self.editing_polygon:
+            if len(self.polygon_points) < 3:
+                self.gui_ref.create_system_chat_message(
+                    "A polygon requires at least 3 points. Please place more points before finishing."
+                )
+                return
             # Finishing polygon editing
             self.editing_polygon = False
             self.start_polygon_button.setText("Mission Area Created")
@@ -308,12 +313,11 @@ class MapPage(QWidget):
             self.gui_ref.sendMissionPolygon(self.polygon_points)
 
             if self.gui_ref.isSimulation:
-                self.gui_ref.start_adding_detection_points()
+                self.end_mission_button.setEnabled(True)
+                self.end_mission_button.setText("Place Detection Points")
                 self.gui_ref.create_system_chat_message(
                     "Mission Area has been defined and terrain has been processed. "
-                    "For the simulation, please add detection points to the map. "
-                    "When you are done, right click the map and select "
-                    "'Finish Adding Detection Points'"
+                    "Click 'Place Detection Points' to add simulated targets to the map."
                 )
             else:
                 # Real mission — enable start button directly
@@ -330,27 +334,6 @@ class MapPage(QWidget):
             self.place_gcs_button.setEnabled(False)
             self.polygon_edit_frame.setVisible(True)
             self.start_polygon_button.setText("Finish Creating Polygon")
-
-    def create_test_job(self):
-        job = Job(
-            "Debug Job",
-            "pending",
-            [
-                (28.6037837, -81.2018019),
-                (28.6037931, -81.2008148),
-                (28.6037366, -81.1983150),
-            ],
-            None,
-            Job.NORMAL,
-        )
-        print(job.start)
-        print(job.waypoints)
-        print(job.end)
-        self.map_widget.set_path(position_list=job.waypoints, width=5, color="red")
-        print("Job Created")
-
-    def get_polygon_points(self):
-        return self.polygon_points
 
     def undo_last_polygon_point(self):
         if len(self.polygon_points) == 0:
@@ -478,7 +461,33 @@ class MapPage(QWidget):
     # ── Path visualization ────────────────────────────────────
 
     def show_path_visualization(self):
-        self.gui_ref.missionState.showPathVisualization()
+        """Embed the path plan as a tab instead of a popup."""
+        # If tab already exists, just switch to it
+        for i in range(self.center_tabs.count()):
+            if self.center_tabs.tabText(i) == "Path Plan":
+                self.center_tabs.setCurrentIndex(i)
+                return
+
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+
+        fig = self.gui_ref.missionState.showPathVisualization()
+        if fig is None:
+            self.gui_ref.create_system_chat_message("Path visualization is not ready yet.")
+            return
+
+        canvas = FigureCanvasQTAgg(fig)
+        self.center_tabs.addTab(canvas, "Path Plan")
+        self.center_tabs.setCurrentWidget(canvas)
+        self._path_plan_canvas = canvas  # prevent garbage collection
+
+    def _remove_tab_by_name(self, name):
+        """Remove a tab from center_tabs by its label text."""
+        for i in range(self.center_tabs.count()):
+            if self.center_tabs.tabText(i) == name:
+                widget = self.center_tabs.widget(i)
+                self.center_tabs.removeTab(i)
+                widget.deleteLater()
+                break
 
     # ── Settings dialog ──────────────────────────────────────
 
@@ -542,21 +551,28 @@ class MapPage(QWidget):
         self.chat_sidebar.input_field.setEnabled(False)
 
     def show_mission_report(self):
-        """Show planned vs actual drone paths using matplotlib."""
-        import matplotlib.pyplot as plt
+        """Embed the mission report as a tab instead of a popup."""
+        # If tab already exists, just switch to it
+        for i in range(self.center_tabs.count()):
+            if self.center_tabs.tabText(i) == "Report":
+                self.center_tabs.setCurrentIndex(i)
+                return
+
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+        from matplotlib.figure import Figure
 
         report_data = self.gui_ref.missionState.get_mission_report_data()
         drone_colors = ['#533483', '#0f3460', '#e94560', '#00e676', '#ffab00']
 
-        fig, ax = plt.subplots(figsize=(10, 8))
+        fig = Figure(figsize=(10, 8))
         fig.patch.set_facecolor('#1a1a2e')
+        ax = fig.add_subplot(111)
         ax.set_facecolor('#16213e')
 
         for i, data in enumerate(report_data):
             color = drone_colors[i % len(drone_colors)]
             drone_id = data['drone_id']
 
-            # Plot planned path
             if data['planned']:
                 planned_lats = [p[0] for p in data['planned']]
                 planned_lons = [p[1] for p in data['planned']]
@@ -564,20 +580,17 @@ class MapPage(QWidget):
                         linewidth=2, label=f'Drone {drone_id} — Planned')
                 ax.plot(planned_lons[0], planned_lats[0], 'o', color=color, markersize=8)
 
-            # Plot actual path
             if data['actual']:
                 actual_lats = [p[0] for p in data['actual']]
                 actual_lons = [p[1] for p in data['actual']]
                 ax.plot(actual_lons, actual_lats, '-', color=color, alpha=1.0,
                         linewidth=2, label=f'Drone {drone_id} — Actual')
 
-        # Plot mission polygon
         if self.polygon_points:
             poly_lats = [p[0] for p in self.polygon_points] + [self.polygon_points[0][0]]
             poly_lons = [p[1] for p in self.polygon_points] + [self.polygon_points[0][1]]
             ax.plot(poly_lons, poly_lats, 'w-', linewidth=1.5, alpha=0.4, label='Mission Area')
 
-        # Plot POI locations
         for poi in self.pois:
             ax.plot(poi.lon, poi.lat, 'r*', markersize=12)
             ax.annotate(poi.name, (poi.lon, poi.lat), color='white', fontsize=8,
@@ -591,13 +604,19 @@ class MapPage(QWidget):
         ax.legend(loc='upper left', facecolor='#16213e', edgecolor='#533483',
                   labelcolor='#e0e0e0', fontsize=9)
 
-        # Store reference to prevent garbage collection
-        self._report_fig = fig
-        plt.show(block=False)
+        canvas = FigureCanvasQTAgg(fig)
+        self.center_tabs.addTab(canvas, "Report")
+        self.center_tabs.setCurrentWidget(canvas)
+        self._report_canvas = canvas  # prevent garbage collection
 
     # ── Mission reset ─────────────────────────────────────────
 
     def reset_for_new_mission(self):
+        # Remove extra tabs (Path Plan, Report) — keep only the Map tab
+        self._remove_tab_by_name("Path Plan")
+        self._remove_tab_by_name("Report")
+        self.center_tabs.setCurrentIndex(0)
+
         # Clear polygon
         self.polygon_points = []
         self.map_widget.remove_polygon("mission_polygon")

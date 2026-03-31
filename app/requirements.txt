@@ -1,49 +1,38 @@
+# VITALS-AI-DroneSwarm — combined dependencies (main repo + vision-edge submodule)
 
-# ===== LLM & Computer Vision =====
+# LLM & Computer Vision
 ollama
-#  - Client library to call a local LLM (chat/model) for assistant/tool-call style interactions
 ultralytics
 #  - YOLO/Ultralytics package for object detection models (training and inference)
 opencv-python-headless
 #  - OpenCV bindings for image processing and camera/vision utilities
 mcp
 #  - Custom internal package for MCP backends and tools (local path package)
+opencv-python
+Pillow>=10.0.0
+requests>=2.31.0
 
-# ===== MAVLink =====
+# MAVLink
 pymavlink
-#  - MAVLink protocol bindings for Python to communicate with drones using MAVLink messages
-pyserial
+pyserial>=3.5
 mavproxy
-# ===== GUI =====
+
+# GUI
 tkintermapview
-#  - An embeddable map widget for Tkinter that shows tiles and map markers (used for the main map view)
 customtkinter
-#  - A modern-themed UI toolkit for Tkinter that provides styled buttons, frames and controls
-Pillow
-#  - Python Imaging Library for loading, manipulating and saving images (required for GUI icons)
 PyQt6
 PyQt6-WebEngine
-# ===== Path planning & Geospatial  =====
-numpy
+
+# Path Planning & Geospatial
+numpy<2
 rtree
-#  - A spatial index implementation that speeds up location queries (find features inside boxes quickly)
 shapely
-#  - A library for creating and operating on geometric shapes (polygons, points, intersections)
 osmnx
-#  - Utilities to download and work with OpenStreetMap data (e.g., streets, buildings) and build spatial graphs
-matplotlib  
-#  - Plotting library for producing graphs and debugging visualizations of maps and data
+matplotlib
 geopandas
-#  - A high-level geospatial data library built on top of pandas and shapely for working with geospatial dataframes 
 
-# ===== Database / PostGIS =====
+# Database / PostGIS
 sqlalchemy
-#  - A Python toolkit for building SQL queries and reflecting database schemas programmatically
 geoalchemy2
-#  - Extensions to SQLAlchemy that add PostGIS/geometry column types and helpers
 psycopg2-binary==2.9.11
-#  - Low-level PostgreSQL database adapter used to execute SQL and fetch results (binary dist)
 pyproj
-#  - Python interface to PROJ for coordinate transformations and geodetic calculations
-
-

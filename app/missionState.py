@@ -2,8 +2,16 @@ import matplotlib
 matplotlib.use('QtAgg')
 
 import os
+import sys
 import random
-from Agents.Agent_A.PerceptionProcessing.YoloDetector import YoloDetector
+import requests
+
+# Add vision-edge submodule to Python path (hyphenated dir name can't be imported directly)
+_vision_edge_src = os.path.join(os.path.dirname(__file__), "vision-edge", "src")
+if _vision_edge_src not in sys.path:
+    sys.path.insert(0, _vision_edge_src)
+
+from PerceptionProcessing.YoloDetector import YoloDetector
 from GUI.GUI import GUI
 from Dispatcher import Dispatcher
 import asyncio
@@ -21,9 +29,13 @@ import threading
 from models.jobs.job_queue import JobQueue
 from models.jobs.job import Job
 
+API_ENDPOINT = "https://ikh1sc3052.execute-api.us-east-2.amazonaws.com/default/"
+API_KEY = "uLvKjXwS1B0uAXh7Uteu6dOJWyCerhx5GW2lrZ64"
+
 class Drone:
     drone_id = None
     system_status = None
+    custom_mode = None
     latitude = None # Note: this is not a float, it is a int with 7 decimal places
     longitude = None # Note: this is not a float, it is a int with 7 decimal places
     altitude = None # millimeters above sea level
@@ -83,8 +95,10 @@ class Drone:
         self.yaw = yaw
         self.missionState.gui.updateDroneTelemetry(self.drone_id, roll, pitch, yaw)
 
-    def updateStatus(self, system_status):
+    def updateStatus(self, system_status, custom_mode=None):
         self.system_status = system_status
+        if custom_mode is not None:
+            self.custom_mode = custom_mode
         self.missionState.gui.updateDroneStatus(self.drone_id, system_status)
     
     def addJob(self, job):
@@ -222,6 +236,31 @@ class missionState:
         self.detectionPoints = []
         self.visualization_ready = False
 
+    @staticmethod
+    def toggle_database(action):
+        """Sends a start/stop command to the VITALS OSM EC2 instance."""
+
+        headers = {
+                "x-api-key": API_KEY,
+                "Content-Type": "application/json"
+        }
+
+        payload = {"action": action.lower()}
+
+        try:
+            print(f"[*] Sending {action.upper()} request to OSM Database...")
+            response = requests.post(API_ENDPOINT, json=payload, headers=headers)
+
+            if response.status_code == 200:
+                result = response.json()
+                print(f"[+] Success: {result.get('status', 'Command executed')}")
+            else:
+                print(f"[-] Error {response.status_code}: {response.text}")
+
+        except requests.exceptions.RequestException as e:
+            print(f"[-] Connection failed: {e}")
+
+    
     def reset_for_new_mission(self):
         """Reset missionState for a new mission while preserving MAVLink connection."""
         self.pois = []
@@ -324,49 +363,30 @@ class missionState:
         self.rtree = rtree
         self.missionPolygon = polygon
         self.doPathPlanning()
-        new_visualization = Interactive_Visualization(self)
-        try:
-            new_visualization.initalize_plot(
-                rtree,
-                grid,
-                polygon,
-                {
-                    "building": (1, 0, 0, 1.0),
-                    "water": (0.0, 0.0, 1.0, 1.0),
-                    "highway": {"highway": (1, 0, 0, 1), "pedestrian_path": (0, 0, 1, 1)},
-                },
-                True,
-                0,
-                self.drone_search_destinations,
-            )
-        except Exception as e:
-            print(f"Visualization error (non-fatal): {e}")
+        # Store visualization config for on-demand display
+        self.visualization_ready = True
 
-        # REMOVE threaded launch:
-        # self.visualization_thread = threading.Thread(
-        #     target=new_visualization.initalize_plot,
-        #     args=(rtree, grid, polygon, {"building": (1, 0, 0, 1.0), "water": (0.0, 0.0, 1.0, 1.0), "highway": {"highway": (1, 0, 0, 1), "pedestrian_path": (0, 0, 1, 1)}}, True, 0, self.drone_search_destinations),
-        #     daemon=True
-        # )
-        # self.visualization_thread.start()
+    def showPathVisualization(self):
+        """Launch the path visualization on-demand. Returns the matplotlib figure."""
+        if not self.visualization_ready:
+            print("Visualization not ready - polygon not yet created")
+            return None
 
-        def _show():
-            self._visualization = Interactive_Visualization(self)
-            self._visualization.initalize_plot(
-                self.rtree, self.missionGrid, self.missionPolygon, {
-                    "building": (1, 0, 0, 1.0),
-                    "water": (0.0, 0.0, 1.0, 1.0),
-                    "highway": {
-                        "highway": (1.0, 0.65, 0.0, 1.0),
-                        "pedestrian_path": (0.4, 0.8, 0.4, 1.0)
-                    }
-                },
-                show_grid=True,
-                polygon_darkening_factor=0,
-                drone_paths=self.drone_search_destinations
-            )
-
-        self.gui._invoker.invoke(_show)
+        self._visualization = Interactive_Visualization(self)
+        fig = self._visualization.initalize_plot(
+            self.rtree, self.missionGrid, self.missionPolygon, {
+                "building": (1, 0, 0, 1.0),
+                "water": (0.0, 0.0, 1.0, 1.0),
+                "highway": {
+                    "highway": (1.0, 0.65, 0.0, 1.0),
+                    "pedestrian_path": (0.4, 0.8, 0.4, 1.0)
+                }
+            },
+            show_grid=True,
+            polygon_darkening_factor=0,
+            drone_paths=self.drone_search_destinations
+        )
+        return fig
 
     def doPathPlanning(self):
         #pass the grid, current_drone_positions(In ID Order, long-lat pairs), and number of drones(If you don't pass the drone positions)
@@ -394,13 +414,13 @@ class missionState:
     def getMissionPolygon(self):
         return self.missionPolygon
 
-    def updateDroneStatus(self, drone_id, system_status):
-        # check if drone exists yet 
+    def updateDroneStatus(self, drone_id, system_status, custom_mode=None):
+        # check if drone exists yet
         drone = next((d for d in self.drones if d.drone_id == drone_id), None)
         if drone is None:
             self.addDrone(drone_id, system_status)
         else:
-            drone.updateStatus(system_status)
+            drone.updateStatus(system_status, custom_mode)
     
     def getDrones(self):
         return self.drones
@@ -547,7 +567,10 @@ class missionState:
     def on_search_traversal_complete(self, drone_id):
         """Called when a drone finishes its Initial Search path with no jobs left."""
         print(f"Drone {drone_id} has completed search traversal.")
-        self.gui.showTraversalCompleteDialog(drone_id)
+        self.call_drone_home(drone_id)
+        self.gui.create_system_chat_message(
+            f"Drone {drone_id} has finished traversing its search path and is returning to launch."
+        )
 
     def repeat_search_traversal(self, drone_id):
         """Re-deploy the initial search path for a specific drone."""
@@ -690,7 +713,13 @@ class missionState:
         
 
 if __name__ == "__main__":
+    missionState.toggle_database('start')
+    
     gui = GUI()
     missionState = missionState(gui)
     gui.link_mission_state(missionState)
-    gui.run()
+    
+    try:
+        gui.run()
+    finally:
+        missionState.toggle_database('stop')

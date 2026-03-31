@@ -200,7 +200,7 @@ class DroneSettingsDialog(QDialog):
         starting_alt = drone_ref.gui_ref.missionState.get_drone_operatingAltitude(drone_id)
         starting_model = drone_ref.gui_ref.missionState.get_drone_vision_model(drone_id)
         available_models = []
-        for filename in os.listdir("./ComputerVision/CVModels/"):
+        for filename in os.listdir("./vision-edge/yolo_models/"):
             if filename.endswith(".pt"):
                 available_models.append(filename[:-3])
 
