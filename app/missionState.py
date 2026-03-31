@@ -334,49 +334,30 @@ class missionState:
         self.rtree = rtree
         self.missionPolygon = polygon
         self.doPathPlanning()
-        new_visualization = Interactive_Visualization(self)
-        try:
-            new_visualization.initalize_plot(
-                rtree,
-                grid,
-                polygon,
-                {
-                    "building": (1, 0, 0, 1.0),
-                    "water": (0.0, 0.0, 1.0, 1.0),
-                    "highway": {"highway": (1, 0, 0, 1), "pedestrian_path": (0, 0, 1, 1)},
-                },
-                True,
-                0,
-                self.drone_search_destinations,
-            )
-        except Exception as e:
-            print(f"Visualization error (non-fatal): {e}")
+        # Store visualization config for on-demand display
+        self.visualization_ready = True
 
-        # REMOVE threaded launch:
-        # self.visualization_thread = threading.Thread(
-        #     target=new_visualization.initalize_plot,
-        #     args=(rtree, grid, polygon, {"building": (1, 0, 0, 1.0), "water": (0.0, 0.0, 1.0, 1.0), "highway": {"highway": (1, 0, 0, 1), "pedestrian_path": (0, 0, 1, 1)}}, True, 0, self.drone_search_destinations),
-        #     daemon=True
-        # )
-        # self.visualization_thread.start()
+    def showPathVisualization(self):
+        """Launch the path visualization on-demand. Returns the matplotlib figure."""
+        if not self.visualization_ready:
+            print("Visualization not ready - polygon not yet created")
+            return None
 
-        def _show():
-            self._visualization = Interactive_Visualization(self)
-            self._visualization.initalize_plot(
-                self.rtree, self.missionGrid, self.missionPolygon, {
-                    "building": (1, 0, 0, 1.0),
-                    "water": (0.0, 0.0, 1.0, 1.0),
-                    "highway": {
-                        "highway": (1.0, 0.65, 0.0, 1.0),
-                        "pedestrian_path": (0.4, 0.8, 0.4, 1.0)
-                    }
-                },
-                show_grid=True,
-                polygon_darkening_factor=0,
-                drone_paths=self.drone_search_destinations
-            )
-
-        self.gui._invoker.invoke(_show)
+        self._visualization = Interactive_Visualization(self)
+        fig = self._visualization.initalize_plot(
+            self.rtree, self.missionGrid, self.missionPolygon, {
+                "building": (1, 0, 0, 1.0),
+                "water": (0.0, 0.0, 1.0, 1.0),
+                "highway": {
+                    "highway": (1.0, 0.65, 0.0, 1.0),
+                    "pedestrian_path": (0.4, 0.8, 0.4, 1.0)
+                }
+            },
+            show_grid=True,
+            polygon_darkening_factor=0,
+            drone_paths=self.drone_search_destinations
+        )
+        return fig
 
     def doPathPlanning(self):
         #pass the grid, current_drone_positions(In ID Order, long-lat pairs), and number of drones(If you don't pass the drone positions)
@@ -557,7 +538,10 @@ class missionState:
     def on_search_traversal_complete(self, drone_id):
         """Called when a drone finishes its Initial Search path with no jobs left."""
         print(f"Drone {drone_id} has completed search traversal.")
-        self.gui.showTraversalCompleteDialog(drone_id)
+        self.call_drone_home(drone_id)
+        self.gui.create_system_chat_message(
+            f"Drone {drone_id} has finished traversing its search path and is returning to launch."
+        )
 
     def repeat_search_traversal(self, drone_id):
         """Re-deploy the initial search path for a specific drone."""
