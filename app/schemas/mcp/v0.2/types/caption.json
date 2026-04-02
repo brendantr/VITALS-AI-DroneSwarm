@@ -1,0 +1,30 @@
+{
+  "$id": "https://vitals.dev/schemas/mcp/v0.2/types/caption.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event_id", "ts", "type", "source", "payload"],
+  "properties": {
+    "schema": { "const": "mcp.v0.2" },
+    "event_id": { "type": "string", "minLength": 8 },
+    "ts": { "type": "string" },
+    "type": { "const": "MCP.Caption" },
+    "corr_id": { "type": "string" },
+    "idempotency_key": { "type": "string", "minLength": 8 },
+    "source": { "$ref": "../base.json#/$defs/source" },
+    "geo": { "$ref": "../base.json#/$defs/geo" },
+    "text": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caption"],
+      "properties": {
+        "caption": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sector": { "type": "string" },
+        "uav_id": { "type": "string" },
+        "frame_ts": { "type": "string" }
+      }
+    }
+  }
+}

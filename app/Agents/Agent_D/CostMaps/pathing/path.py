@@ -1,8 +1,18 @@
-import random
+from __future__ import annotations
+
 from collections import deque
+from dataclasses import dataclass
+from shapely.geometry import Point
 
 
 DIRECTIONS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
+
+@dataclass
+class SearchPlan:
+    cell_paths: dict[int, list[tuple[int, int]]]
+    centroid_paths: dict[int, list]
+    fallback_mode: str = "object_search"
 
 
 def heuristic(a, b):
@@ -17,6 +27,27 @@ def _build_viable_positions(grid):
             if not grid[r][c].in_searcharea or grid[r][c].total_count <= 0:
                 continue
             positions.append((r, c))
+    return positions
+
+
+def _build_searcharea_positions(grid):
+    positions = []
+    for r in range(len(grid)):
+        for c in range(len(grid[0])):
+            if grid[r][c].in_searcharea:
+                positions.append((r, c))
+    return positions
+
+
+def _default_drone_positions(grid, num_drones, pool):
+    if not pool:
+        pool = _build_searcharea_positions(grid)
+    if not pool:
+        return []
+    ordered = sorted(pool)
+    positions = []
+    for idx in range(max(0, int(num_drones))):
+        positions.append(ordered[min(idx, len(ordered) - 1)])
     return positions
 
 
@@ -122,12 +153,14 @@ def _connected_components(cells):
     return components
 
 
-def _assign_objects_to_drones(object_items, drone_positions, num_drones):
+def _assign_objects_to_drones(object_items, drone_positions, drone_ids):
     """Assign one object to one drone with nearest-first deterministic ordering."""
-    drone_ids = list(range(num_drones))
     assignments = {drone_id: [] for drone_id in drone_ids}
     per_drone_load = {drone_id: 0 for drone_id in drone_ids}
-    current_pos = {drone_id: drone_positions[drone_id] for drone_id in drone_ids}
+    current_pos = {
+        drone_id: drone_positions[idx]
+        for idx, drone_id in enumerate(drone_ids)
+    }
 
     for item in object_items:
         object_cells = item["cells"]
@@ -148,12 +181,12 @@ def _assign_objects_to_drones(object_items, drone_positions, num_drones):
     return assignments, current_pos
 
 
-def _assign_road_components(road_cells, current_pos, base_positions):
-    if not road_cells:
+def _assign_component_paths(search_cells, current_pos, base_positions):
+    if not search_cells:
         return {drone_id: [] for drone_id in current_pos}
 
     drone_ids = sorted(current_pos)
-    components = _connected_components(road_cells)
+    components = _connected_components(search_cells)
     component_items = []
     for comp in components:
         center = _centroid_cell(comp)
@@ -161,66 +194,213 @@ def _assign_road_components(road_cells, current_pos, base_positions):
         component_items.append({"cells": comp, "center": center, "base_dist": base_dist})
     component_items.sort(key=lambda item: item["base_dist"])
 
-    road_assignments = {drone_id: [] for drone_id in drone_ids}
+    assignments = {drone_id: [] for drone_id in drone_ids}
     for item in component_items:
         cells = item["cells"]
         center = item["center"]
         best_drone = min(drone_ids, key=lambda drone_id: heuristic(current_pos[drone_id], center))
         ordered = _ordered_cells_contiguous(cells, current_pos[best_drone])
-        road_assignments[best_drone].extend(ordered)
+        assignments[best_drone].extend(ordered)
         if ordered:
             current_pos[best_drone] = ordered[-1]
-    return road_assignments
+    return assignments
 
 
-def _cells_to_centroids(grid, assignments_cells):
-    precomp_destinations = {drone_id: [] for drone_id in sorted(assignments_cells)}
-    for drone_id, cells in assignments_cells.items():
+def _split_component_paths(search_cells, current_pos, base_positions):
+    if not search_cells:
+        return {drone_id: [] for drone_id in current_pos}
+
+    drone_ids = sorted(current_pos)
+    components = _connected_components(search_cells)
+    component_items = []
+    for comp in components:
+        center = _centroid_cell(comp)
+        base_dist = min(heuristic(base_positions[drone_id], center) for drone_id in drone_ids)
+        component_items.append({"cells": comp, "center": center, "base_dist": base_dist})
+    component_items.sort(key=lambda item: item["base_dist"])
+
+    assignments = {drone_id: [] for drone_id in drone_ids}
+    for item in component_items:
+        center = item["center"]
+        ranked_drones = sorted(
+            drone_ids,
+            key=lambda drone_id: (
+                len(assignments[drone_id]),
+                heuristic(current_pos[drone_id], center),
+                drone_id,
+            ),
+        )
+        lead_drone = ranked_drones[0]
+        ordered = _ordered_cells_contiguous(item["cells"], current_pos[lead_drone])
+        active_count = min(len(ordered), len(ranked_drones))
+        if active_count <= 1:
+            assignments[lead_drone].extend(ordered)
+            if ordered:
+                current_pos[lead_drone] = ordered[-1]
+            continue
+
+        base_chunk = len(ordered) // active_count
+        extra = len(ordered) % active_count
+        start = 0
+        for index, drone_id in enumerate(ranked_drones[:active_count]):
+            chunk_size = base_chunk + (1 if index < extra else 0)
+            chunk = ordered[start:start + chunk_size]
+            start += chunk_size
+            assignments[drone_id].extend(chunk)
+            if chunk:
+                current_pos[drone_id] = chunk[-1]
+    return assignments
+
+
+def cell_paths_to_centroids(grid, cell_paths):
+    centroid_paths = {drone_id: [] for drone_id in sorted(cell_paths)}
+    for drone_id, cells in cell_paths.items():
         for r, c in cells:
-            precomp_destinations[drone_id].append(grid[r][c].polygon.centroid)
-    return precomp_destinations
+            polygon = getattr(grid[r][c], "polygon", None)
+            centroid_paths[drone_id].append(polygon.centroid if polygon is not None else Point(float(c), float(r)))
+    return centroid_paths
+
+
+def build_search_plan(grid, drone_positions=None, viable_grid_positions=None, num_drones=4):
+    """Deterministic assignment with a cell-search fallback for empty OSM results."""
+
+    if not grid:
+        return SearchPlan(cell_paths={}, centroid_paths={}, fallback_mode="empty")
+
+    viable_positions = list(viable_grid_positions or _build_viable_positions(grid))
+    searcharea_positions = _build_searcharea_positions(grid)
+
+    if drone_positions:
+        normalized_drone_positions = [tuple(map(int, position)) for position in drone_positions]
+    else:
+        normalized_drone_positions = _default_drone_positions(
+            grid,
+            num_drones=max(0, int(num_drones)),
+            pool=viable_positions or searcharea_positions,
+        )
+
+    drone_count = max(0, min(int(num_drones), len(normalized_drone_positions)))
+    if drone_count <= 0:
+        return SearchPlan(cell_paths={}, centroid_paths={}, fallback_mode="empty")
+
+    drone_ids = list(range(drone_count))
+    base_positions = {
+        drone_id: normalized_drone_positions[idx]
+        for idx, drone_id in enumerate(drone_ids)
+    }
+
+    grouped_objects, road_cells = _object_groups(grid, viable_positions)
+    has_osm_items = bool(grouped_objects) or bool(road_cells)
+
+    if has_osm_items:
+        object_items = []
+        for (kind, name), cells in grouped_objects.items():
+            center = _centroid_cell(cells)
+            object_items.append({"key": (kind, name), "cells": set(cells), "center": center})
+
+        base_pos = base_positions[drone_ids[0]]
+        object_items.sort(
+            key=lambda item: (heuristic(base_pos, item["center"]), item["key"][0], item["key"][1])
+        )
+
+        object_assignments, current_pos = _assign_objects_to_drones(
+            object_items,
+            normalized_drone_positions,
+            drone_ids,
+        )
+        road_assignments = _assign_component_paths(
+            road_cells,
+            current_pos=current_pos,
+            base_positions=base_positions,
+        )
+
+        combined = {drone_id: [] for drone_id in drone_ids}
+        for drone_id in drone_ids:
+            combined[drone_id].extend(object_assignments.get(drone_id, []))
+            combined[drone_id].extend(road_assignments.get(drone_id, []))
+        fallback_mode = "object_search"
+    else:
+        combined = _split_component_paths(
+            set(searcharea_positions),
+            current_pos=dict(base_positions),
+            base_positions=base_positions,
+        )
+        fallback_mode = "cell_search"
+
+    return SearchPlan(
+        cell_paths=combined,
+        centroid_paths=cell_paths_to_centroids(grid, combined),
+        fallback_mode=fallback_mode,
+    )
+
+
+def _insertion_delta(start_cell, cells, point_cell, insert_at):
+    prev_cell = start_cell if insert_at <= 0 else cells[insert_at - 1]
+    next_cell = None if insert_at >= len(cells) else cells[insert_at]
+
+    delta = heuristic(prev_cell, point_cell)
+    if next_cell is None:
+        return delta
+    delta += heuristic(point_cell, next_cell)
+    delta -= heuristic(prev_cell, next_cell)
+    return delta
+
+
+def best_route_insertion(cell_paths, start_cells, point_cell, candidate_drone_ids=None):
+    candidate_ids = sorted(candidate_drone_ids or cell_paths)
+    if not candidate_ids:
+        raise ValueError("No drone routes are available for insertion")
+
+    best_choice = None
+    for drone_id in candidate_ids:
+        path = list(cell_paths.get(drone_id, []))
+        if point_cell in path:
+            insert_at = path.index(point_cell)
+            delta = 0
+            choice = (delta, len(path), drone_id, insert_at)
+            if best_choice is None or choice < best_choice:
+                best_choice = choice
+            continue
+
+        start_cell = start_cells.get(drone_id)
+        if start_cell is None:
+            start_cell = point_cell
+        if not path:
+            choice = (heuristic(start_cell, point_cell), 0, drone_id, 0)
+            if best_choice is None or choice < best_choice:
+                best_choice = choice
+            continue
+
+        for insert_at in range(len(path) + 1):
+            delta = _insertion_delta(start_cell, path, point_cell, insert_at)
+            choice = (delta, len(path), drone_id, insert_at)
+            if best_choice is None or choice < best_choice:
+                best_choice = choice
+
+    if best_choice is None:
+        raise ValueError("Unable to find a route insertion point")
+    _, _, drone_id, insert_at = best_choice
+    return drone_id, insert_at
+
+
+def insert_point_into_cell_paths(cell_paths, start_cells, point_cell, candidate_drone_ids=None):
+    next_paths = {drone_id: list(path) for drone_id, path in cell_paths.items()}
+    drone_id, insert_at = best_route_insertion(
+        next_paths,
+        start_cells=start_cells,
+        point_cell=point_cell,
+        candidate_drone_ids=candidate_drone_ids,
+    )
+    if point_cell not in next_paths.get(drone_id, []):
+        next_paths.setdefault(drone_id, []).insert(insert_at, point_cell)
+    return next_paths, drone_id, insert_at
 
 
 def search_grid_with_drones(grid, drone_positions=None, viable_grid_positions=None, num_drones=4):
-    """Deterministic assignment:
-    1) Assign one building/water object to one drone (nearest-first by object).
-    2) Within each object, traverse contiguous cells to avoid hopping.
-    3) Assign roads by connected segments with contiguous traversal.
-    """
-
-    grid_size = len(grid)
-    if not drone_positions:
-        drone_positions = [(random.randint(0, grid_size - 1), random.randint(0, grid_size - 1)) for _ in range(num_drones)]
-
-    if not viable_grid_positions:
-        viable_grid_positions = _build_viable_positions(grid)
-
-    precomp_destinations = {x: [] for x in range(len(drone_positions))}
-    if not viable_grid_positions:
-        return precomp_destinations
-
-    drone_count = max(0, min(int(num_drones), len(drone_positions)))
-    if drone_count <= 0:
-        return precomp_destinations
-
-    grouped_objects, road_cells = _object_groups(grid, viable_grid_positions)
-
-    object_items = []
-    for (kind, name), cells in grouped_objects.items():
-        center = _centroid_cell(cells)
-        object_items.append({"key": (kind, name), "cells": set(cells), "center": center})
-
-    # Nearest objects first from base for deterministic outward expansion.
-    base_pos = drone_positions[0]
-    object_items.sort(key=lambda item: (heuristic(base_pos, item["center"]), item["key"][0], item["key"][1]))
-
-    base_positions = {drone_id: drone_positions[drone_id] for drone_id in range(drone_count)}
-    object_assignments, current_pos = _assign_objects_to_drones(object_items, base_positions, drone_count)
-    road_assignments = _assign_road_components(road_cells, current_pos=current_pos, base_positions=base_positions)
-
-    combined = {drone_id: [] for drone_id in range(drone_count)}
-    for drone_id in range(drone_count):
-        combined[drone_id].extend(object_assignments.get(drone_id, []))
-        combined[drone_id].extend(road_assignments.get(drone_id, []))
-
-    return _cells_to_centroids(grid, combined)
+    plan = build_search_plan(
+        grid,
+        drone_positions=drone_positions,
+        viable_grid_positions=viable_grid_positions,
+        num_drones=num_drones,
+    )
+    return plan.centroid_paths

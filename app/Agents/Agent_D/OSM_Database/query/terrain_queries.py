@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 
 from ...CostMaps.terrain_CostMap import (
     Tile,
+    build_tile_id,
     find_extreme_coordinates,
     rectangle_side_lengths,
 )
@@ -12,7 +13,7 @@ from rtree import index
 DB_URL = "postgresql://renderer:renderer@localhost:5432/gis"
 engine = create_engine(DB_URL)
 
-def _build_grid_from_tile_counts(tile_rows, search_tags):
+def _build_grid_from_tile_counts(tile_rows, search_tags, terrain_id):
     if not tile_rows:
         return None, None
 
@@ -27,6 +28,9 @@ def _build_grid_from_tile_counts(tile_rows, search_tags):
     for y in range(height):
         for x in range(width):
             tile = grid[y][x]
+            tile.row = y
+            tile.col = x
+            tile.tile_id = build_tile_id(terrain_id, y, x)
             tile.contains_count = {tag: 0 for tag in search_tags}
             tile.contains = {tag: [] for tag in search_tags}
             tile.total_count = 0
@@ -49,8 +53,10 @@ def _build_grid_from_tile_counts(tile_rows, search_tags):
 
         if "building" in tile.contains_count:
             tile.contains_count["building"] = building_ct
+            tile.contains["building"] = [f"building_{x}_{y}"] * building_ct
         if "water" in tile.contains_count:
             tile.contains_count["water"] = water_ct
+            tile.contains["water"] = [f"water_{x}_{y}"] * water_ct
         if "highway" in tile.contains_count:
             tile.contains_count["highway"] = highway_ct + ped_ct
             tile.contains["highway"] = (["highway"] * highway_ct) + (["pedestrian_path"] * ped_ct)
@@ -120,7 +126,8 @@ def create_search_area(
         print("PostGIS returned no tile rows; unable to create a search area.")
         return None, None, None
 
-    grid, viable_grid_positions = _build_grid_from_tile_counts(tile_rows, search_tags)
+    terrain_id = f"terrain_{abs(hash(tuple(postgis_points)))}"
+    grid, viable_grid_positions = _build_grid_from_tile_counts(tile_rows, search_tags, terrain_id)
     if grid is None:
         return None, None, None
 

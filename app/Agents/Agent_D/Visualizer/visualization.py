@@ -101,7 +101,7 @@ class Drone_Path_Navigator:
         self.drone_color = drone_color
         self.path = np.array([(point.x,point.y) for point in path])
         self.end_index = len(path)-1
-        self.layer_name = f"drone{id+1}"
+        self.layer_name = f"drone{id}"
         self.interactive.create_layer(self.layer_name,self.personal_components)
         
         """
@@ -111,7 +111,7 @@ class Drone_Path_Navigator:
         """
         self.button_ax = plt.axes(rect)
         self.button_ax.set_zorder(100)
-        self.button = Button(self.button_ax,f'Drone {id+1} path', color=self.drone_color, hovercolor='#533483')
+        self.button = Button(self.button_ax,f'Drone {id} path', color=self.drone_color, hovercolor='#533483')
         self.button.label.set_color('#e0e0e0')
         self.interactive.button_store[f"drone{id}button"] = self.button
 
@@ -173,6 +173,25 @@ class Interactive_Visualization:
         #plt.ion()
         
         pass
+
+    def _resolve_drone(self, drone_id):
+        if hasattr(self.missionState, "get_drone"):
+            drone = self.missionState.get_drone(drone_id)
+            if drone is not None:
+                return drone
+        for drone in getattr(self.missionState, "drones", []):
+            if getattr(drone, "drone_id", None) == drone_id:
+                return drone
+        return None
+
+    def _drone_xy(self, drone):
+        if drone is None:
+            return None
+        latitude = getattr(drone, "latitude", None)
+        longitude = getattr(drone, "longitude", None)
+        if latitude in (None, 0) or longitude in (None, 0):
+            return None
+        return longitude / 10**7, latitude / 10**7
     
     def create_new_layer(self, name):
         fig = self.ax.get_figure()
@@ -288,6 +307,37 @@ class Interactive_Visualization:
         patch_collections = [child for child in o.get_children() if isinstance(child,col.PatchCollection) and child not in self.layer_components["geometry"]]
         self.create_layer("outline",patch_collections)
 
+    def create_pois(self, pois):
+        current_components = []
+        for poi in pois:
+            lat = getattr(poi, "lat", None)
+            lon = getattr(poi, "lon", None)
+            if lat is None or lon is None:
+                continue
+            marker, = self.ax.plot(
+                [lon],
+                [lat],
+                marker="*",
+                color="#ff6b6b",
+                markeredgecolor="white",
+                markeredgewidth=1.0,
+                markersize=14,
+                linestyle="None",
+            )
+            marker.set_zorder(175)
+            label = self.ax.annotate(
+                getattr(poi, "name", "POI"),
+                (lon, lat),
+                color="white",
+                fontsize=8,
+                xytext=(6, 6),
+                textcoords="offset points",
+                bbox=dict(facecolor="#0f3460", edgecolor="#ff6b6b", alpha=0.8, boxstyle="round,pad=0.2"),
+            )
+            label.set_zorder(176)
+            current_components.extend([marker, label])
+        self.create_layer("pois", current_components)
+
     def create_layer_toggle_button(self, rect, name):
         def toggle_grid_visibility(layer_name, event, button):
             current_visibility = self.layer_visible[layer_name]
@@ -311,7 +361,7 @@ class Interactive_Visualization:
         for i,drone_id in enumerate(drone_paths):
             path = drone_paths[drone_id]
             if len(path) > 1: 
-                color = self.drone_colors[drone_id]
+                color = self.drone_colors[i % len(self.drone_colors)]
                 new_nav = Drone_Path_Navigator(self)
                 new_nav.create_ui([0.01, 0.85-i*0.12, 0.13, 0.04], drone_id, path,color)
                 # Assign color based on the drone
@@ -410,10 +460,19 @@ class Interactive_Visualization:
         if search_points and show_grid:
             self.create_outline(search_points)
 
+        if getattr(self.missionState, "pois", None):
+            self.create_pois(self.missionState.pois)
+
         if drone_paths:
             self.display_drone_paths(drone_paths)
-            current_drone = self.missionState.drones[0]
-            x,y = current_drone.longitude / 10**7,current_drone.latitude/ 10**7
+            initial_xy = None
+            for drone_id in drone_paths:
+                initial_xy = self._drone_xy(self._resolve_drone(drone_id))
+                if initial_xy is not None:
+                    break
+            if initial_xy is None:
+                initial_xy = (np.nan, np.nan)
+            x, y = initial_xy
             
             point, = self.ax.plot([x], [y], marker="o", color="green", markersize=15)  # Blue dot as an example
             point.set_zorder(200)
@@ -430,13 +489,16 @@ class Interactive_Visualization:
                 x_coords = []
                 y_coords = []
                 for drone_id in drone_paths:
-                    current_drone = self.missionState.drones[drone_id]
-                    x,y = current_drone.longitude / 10**7,current_drone.latitude/ 10**7
+                    current_drone = self._resolve_drone(drone_id)
+                    coords = self._drone_xy(current_drone)
+                    if coords is None:
+                        continue
+                    x,y = coords
                     x_coords.append(x)
                     y_coords.append(y)
                     # If text doesn't exist for this drone_id, create it and store it
                     if drone_id not in drone_texts:
-                        text_obj = self.ax.text(x, y, str(drone_id+1), color="white", fontsize=10, ha="center", va="center")
+                        text_obj = self.ax.text(x, y, str(drone_id), color="white", fontsize=10, ha="center", va="center")
                         text_obj.set_zorder(201)
                         drone_texts[drone_id] = text_obj
                     else:
@@ -474,6 +536,8 @@ class Interactive_Visualization:
 
         self.create_layer_toggle_button([0.9, 0.4, 0.1, 0.075], "Grid")
         self.create_layer_toggle_button([0.9, 0.3, 0.1, 0.075], "Outline")
+        if getattr(self.missionState, "pois", None):
+            self.create_layer_toggle_button([0.9, 0.2, 0.1, 0.075], "Pois")
 
         #WARNING: If the buttons come out of scope, you will lose access to it, which is not good!.
         #plt.show needs to be in here.

@@ -5,6 +5,7 @@ import os
 import sys
 import random
 import requests
+from datetime import datetime
 
 # Add vision-edge submodule to Python path (hyphenated dir name can't be imported directly)
 _vision_edge_src = os.path.join(os.path.dirname(__file__), "vision-edge", "src")
@@ -16,16 +17,14 @@ from GUI.GUI import GUI
 from Dispatcher import Dispatcher
 import asyncio
 import threading
-from Agents.Agent_D.OSM_Database.query.terrain_queries import create_search_area
+from Agents.Agent_D.agent_entry import get_service as get_agent_d_service
+from Agents.Agent_D.service import AgentDError
 from Agents.Agent_D.Visualizer.visualization import plot_search_area, plot_advanced, plot_postGIS_data, plot_drone_paths
 from Agents.Agent_D.Visualizer.visualization import Interactive_Visualization
-from Agents.Agent_D.CostMaps.pathing.path import search_grid_with_drones
 from LangGraph import langChainMain
 import concurrent.futures
 from Utils import coordinate_estimation
-import heapq
 import cv2
-import threading
 from models.jobs.job_queue import JobQueue
 from models.jobs.job import Job
 
@@ -227,6 +226,8 @@ class missionState:
         self.loop = asyncio.new_event_loop()
         self.dispatcher = Dispatcher.Dispatcher(self)
         self.jobIDCounter = 100
+        self.agent_d = get_agent_d_service()
+        self.missionID = "mission-local"
         # TEST VALUES
         self.mission_waypoints = [(28.6013158, -81.2020057, 10, 0 ), (28.6031200, -81.1993369, 10, 0) , (28.6004825, -81.1942729, 10, 0)]
         self.mission_waypoints2  = [(28.6000236, -81.1988032, 10, 2)]
@@ -235,6 +236,11 @@ class missionState:
         #for simulation purposes
         self.detectionPoints = []
         self.visualization_ready = False
+        self.missionGrid = None
+        self.viable_grid_positions = None
+        self.rtree = None
+        self.drone_search_destinations = {}
+        self.agent_d_last_result = None
 
     @staticmethod
     def toggle_database(action):
@@ -270,8 +276,9 @@ class missionState:
         self.missionGrid = None
         self.rtree = None
         self.viable_grid_positions = None
-        self.drone_search_destinations = None
+        self.drone_search_destinations = {}
         self.gcs_location = None
+        self.agent_d_last_result = None
         # Reset all drone state for new mission
         for drone in self.drones:
             drone.position_history = []
@@ -279,7 +286,92 @@ class missionState:
             drone.available = True
             drone.active_job = None
             drone.last_mission_state = None
-            drone.jobQueue = jobPriorityQueue()
+            drone.jobQueue = JobQueue()
+
+    def _current_drone_geo(self, drone):
+        lat = None
+        lon = None
+        if drone.latitude not in (None, 0) and drone.longitude not in (None, 0):
+            lat = drone.latitude / 1e7 if abs(drone.latitude) > 90 else drone.latitude
+            lon = drone.longitude / 1e7 if abs(drone.longitude) > 180 else drone.longitude
+        elif drone.home_latitude not in (None, 0) and drone.home_longitude not in (None, 0):
+            lat = drone.home_latitude / 1e7 if abs(drone.home_latitude) > 90 else drone.home_latitude
+            lon = drone.home_longitude / 1e7 if abs(drone.home_longitude) > 180 else drone.home_longitude
+        return lat, lon
+
+    def _agent_d_context(self):
+        drones = []
+        for drone in self.drones:
+            lat, lon = self._current_drone_geo(drone)
+            drones.append({"drone_id": drone.drone_id, "lat": lat, "lon": lon})
+        return {"drones": drones, "num_drones": max(len(drones), 4)}
+
+    def _build_agent_d_search_intent(self, polygon):
+        return {
+            "schema": "acp.v0.2",
+            "event_id": f"search-{self.missionID}",
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "type": "ACP.Intent",
+            "corr_id": self.missionID,
+            "idempotency_key": f"search-area-{self.missionID}",
+            "source": {"system": "VITALS", "component": "GUIAdapter", "instance": "desktop"},
+            "target": {"component": "AgentD", "instance": "agentd-core"},
+            "payload": {
+                "intent_kind": "SearchArea",
+                "priority": 50,
+                "area": {
+                    "polygon_wgs84": [
+                        {"lat": float(lat), "lon": float(lon)}
+                        for lat, lon in polygon
+                    ]
+                },
+            },
+        }
+
+    def _build_agent_d_poi_intent(self, lat, lon):
+        suffix = len(self.pois) + 1
+        return {
+            "schema": "acp.v0.2",
+            "event_id": f"poi-{self.missionID}-{suffix}",
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "type": "ACP.Intent",
+            "corr_id": self.missionID,
+            "idempotency_key": f"gui-poi-{self.missionID}-{suffix}",
+            "source": {"system": "VITALS", "component": "GUIAdapter", "instance": "desktop"},
+            "target": {"component": "AgentD", "instance": "agentd-core"},
+            "payload": {
+                "intent_kind": "InvestigatePoint",
+                "priority": 80,
+                "point": {"lat": float(lat), "lon": float(lon)},
+                "rationale": "GUI manual detection point",
+            },
+        }
+
+    def _build_agent_d_detection_message(self, lat, lon, label, confidence, drone_id):
+        return {
+            "schema": "mcp.v0.2",
+            "event_id": f"det-{self.missionID}-{drone_id}-{int(abs(lat) * 1000000)}",
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "type": "MCP.Detection",
+            "corr_id": self.missionID,
+            "idempotency_key": f"vision-detection-{self.missionID}-{drone_id}-{int(abs(lat) * 1000000)}",
+            "source": {"system": "VITALS", "component": "AgentA", "instance": f"drone-{drone_id}"},
+            "geo": {"lat": float(lat), "lon": float(lon)},
+            "payload": {"label": str(label), "confidence": float(confidence)},
+            "text": f"{label} detected at {lat:.6f},{lon:.6f}",
+        }
+
+    def _sync_agent_d_session(self):
+        session = self.agent_d.get_session(self.missionID)
+        if session is None:
+            return None
+        self.missionGrid = session.grid
+        self.viable_grid_positions = session.viable_grid_positions
+        self.rtree = session.rtree
+        self.missionPolygon = session.polygon_wgs84
+        self.drone_search_destinations = session.centroid_paths
+        self.visualization_ready = True
+        return session
 
     def connect_to_mavlink(self):
         if self.mavLinkConnected:
@@ -338,33 +430,12 @@ class missionState:
             drone.updateTelemetry(roll, pitch, yaw)
 
     def addMissionPolygon(self, polygon):
-        print("Gotcha!")
-
-        #polygon = [(round(lat, 7), round(lon, 7)) for lat, lon in polygon]
-        #polygon = tuple(polygon)
-        
-
-        #print(f"Original area: {type(polygon[0][0])}") 
-        #polygon = ((28.6055263, -81.2037652), (28.6053378, -81.1950105), (28.5973877, -81.1945813), (28.5971993, -81.2038939))
-        #polygon = tuple(polygon)
-        #print(f"Check area: {type(polygon[0][0])}") 
-        
-        rtree, grid, viable_grid_positions = create_search_area(
-            polygon_points=polygon,
-            search_tags={"building": True, "water": True, "highway": True},
-            useOSMX=False,
-            maximum_square_size=60,
-            minimum_grid_size=8,
+        result = self.agent_d.ingest_message(
+            self._build_agent_d_search_intent(polygon),
+            context=self._agent_d_context(),
         )
-        #plot_advanced(rtree,grid, polygon, {"building": (169,169,169,1), "water":(15, 10, 222,1)})
-        #plot_postGIS_data(rtree, grid, polygon, {"building": (1, 0, 0, 1.0), "water":(0.0, 0.0, 1.0, 1.0), "highway":{"highway":(1, 0, 0, 1),"pedestrian_path":(0, 0, 1, 1)}}, show_grid=True,polygon_darkening_factor=0)
-        self.missionGrid = grid
-        self.viable_grid_positions = viable_grid_positions
-        self.rtree = rtree
-        self.missionPolygon = polygon
-        self.doPathPlanning()
-        # Store visualization config for on-demand display
-        self.visualization_ready = True
+        self.agent_d_last_result = result
+        self._sync_agent_d_session()
 
     def showPathVisualization(self):
         """Launch the path visualization on-demand. Returns the matplotlib figure."""
@@ -389,21 +460,16 @@ class missionState:
         return fig
 
     def doPathPlanning(self):
-        #pass the grid, current_drone_positions(In ID Order, long-lat pairs), and number of drones(If you don't pass the drone positions)
-        drone_positions =  []
-        for drone in self.drones:
-            # Only add positions for drones with valid coordinates
-            if drone.longitude is not None and drone.latitude is not None:
-                drone_positions.append((drone.longitude/1e7, drone.latitude/1e7))
-        self.drone_search_destinations = search_grid_with_drones(self.missionGrid,drone_positions,self.viable_grid_positions,4)
-        pass
+        self._sync_agent_d_session()
 
     def deployInitialPaths(self):
-        for i, drone in enumerate(self.drones):
+        for drone in self.drones:
             converted_waypoints = []
-            for j, coord in enumerate(self.drone_search_destinations[i]):
+            planned_path = (self.drone_search_destinations or {}).get(drone.drone_id, [])
+            for coord in planned_path:
                 converted_waypoints.append((coord.y, coord.x, drone.operatingAltitude, 0))
-            self.create_job("Initial Search", converted_waypoints, 1, drone.drone_id)
+            if converted_waypoints:
+                self.create_job("Initial Search", converted_waypoints, 1, drone.drone_id)
 
 
     def startSearchMission(self):
@@ -545,11 +611,10 @@ class missionState:
     def get_mission_report_data(self):
         """Return planned and actual paths for each drone."""
         report = []
-        for i, drone in enumerate(self.drones):
+        for drone in self.drones:
             planned = []
-            if self.drone_search_destinations and i < len(self.drone_search_destinations):
-                for coord in self.drone_search_destinations[i]:
-                    planned.append((coord.y, coord.x))  # (lat, lon)
+            for coord in (self.drone_search_destinations or {}).get(drone.drone_id, []):
+                planned.append((coord.y, coord.x))  # (lat, lon)
             # Convert position history from 1e7 int format if needed
             actual = []
             for lat, lon in drone.position_history:
@@ -576,10 +641,9 @@ class missionState:
         """Re-deploy the initial search path for a specific drone."""
         drone = next((d for d in self.drones if d.drone_id == drone_id), None)
         if drone is not None:
-            idx = self.drones.index(drone)
-            if self.drone_search_destinations and idx < len(self.drone_search_destinations):
+            if self.drone_search_destinations and drone.drone_id in self.drone_search_destinations:
                 converted_waypoints = []
-                for coord in self.drone_search_destinations[idx]:
+                for coord in self.drone_search_destinations[drone.drone_id]:
                     converted_waypoints.append((coord.y, coord.x, drone.operatingAltitude, 0))
                 self.create_job("Initial Search", converted_waypoints, 1, drone_id)
 
@@ -596,7 +660,7 @@ class missionState:
         self.gui.enter_mission_ended_state()
     
     def set_missionID(self, id):
-        self.missionID = id
+        self.missionID = str(id)
     
     def get_missionID(self):
         return self.missionID
@@ -642,6 +706,25 @@ class missionState:
                 image_height=1080
             )
 
+            try:
+                detection_result = self.agent_d.ingest_message(
+                    self._build_agent_d_detection_message(
+                        estimated_lat,
+                        estimated_lon,
+                        detections[0].class_name,
+                        detections[0].confidence,
+                        drone_id,
+                    )
+                )
+            except AgentDError as exc:
+                self.gui.create_system_chat_message(
+                    f"Agent D rejected a vision detection from drone {drone_id}: {exc}"
+                )
+                return
+
+            self.agent_d_last_result = detection_result
+            self._sync_agent_d_session()
+
             # Check if the detected POI already exists within 20 meters
             for poi in self.pois:
                 if coordinate_estimation.calculate_distance_between_points(estimated_lat, estimated_lon, poi.lat, poi.lon) < 40:
@@ -654,8 +737,7 @@ class missionState:
                     return
 
             # If no existing POI, create a new one
-            poi_id = self.gui.map_page.add_poi(estimated_lat, estimated_lon, "Detected POI", description)
-            self.create_poi_investigate_job(poi_id, drone_id, 5)
+            poi_id = self.gui.addDetectedPOI(estimated_lat, estimated_lon, "Detected POI", description)
 
             # Store image in POI directory
             os.makedirs(f"Missions/{self.missionID}/POIs/{poi_id}", exist_ok=True)
@@ -666,6 +748,15 @@ class missionState:
 
     def setDetectionPoints(self, points):
         self.detectionPoints = points
+
+    def register_manual_detection_points(self, points):
+        for point in points:
+            lat = float(point["lat"])
+            lon = float(point["lon"])
+            result = self.agent_d.ingest_message(self._build_agent_d_poi_intent(lat, lon))
+            self.agent_d_last_result = result
+            self.gui.map_page.add_poi(lat, lon, "Manual POI", "GUI detection point")
+        self._sync_agent_d_session()
 
     def  get_drone_operatingAltitude(self, drone_id):
         drone = next((d for d in self.drones if d.drone_id == drone_id), None)

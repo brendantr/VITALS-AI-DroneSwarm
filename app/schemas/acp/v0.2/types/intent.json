@@ -1,0 +1,84 @@
+{
+  "$id": "https://vitals.dev/schemas/acp/v0.2/types/intent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event_id", "ts", "type", "idempotency_key", "source", "payload"],
+  "properties": {
+    "schema": { "const": "acp.v0.2" },
+    "event_id": { "type": "string", "minLength": 8 },
+    "ts": { "type": "string" },
+    "type": { "const": "ACP.Intent" },
+    "corr_id": { "type": "string", "minLength": 1 },
+    "span_id": { "type": "string" },
+    "idempotency_key": { "type": "string", "minLength": 8 },
+    "source": { "$ref": "../base.json#/$defs/source" },
+    "target": { "$ref": "../base.json#/$defs/target" },
+    "geo": { "$ref": "../base.json#/$defs/geo" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intent_kind"],
+      "properties": {
+        "intent_kind": {
+          "type": "string",
+          "enum": ["SearchArea", "InvestigatePoint", "HoldPosition", "ReturnToHome"]
+        },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "avoid_nfz": { "type": "boolean" },
+            "min_alt_m": { "type": "number" },
+            "max_alt_m": { "type": "number" },
+            "time_budget_s": { "type": "integer", "minimum": 0 },
+            "battery_reserve_pct": { "type": "integer", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "area": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sector": { "type": "string" },
+            "polygon_wgs84": {
+              "type": "array",
+              "minItems": 3,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["lat", "lon"],
+                "properties": {
+                  "lat": { "type": "number" },
+                  "lon": { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+        "point": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["lat", "lon"],
+          "properties": {
+            "lat": { "type": "number" },
+            "lon": { "type": "number" },
+            "alt_m": { "type": "number" }
+          }
+        },
+        "uav_assignment": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "uav_id": { "type": "string" }
+          }
+        },
+        "rationale": { "type": "string" }
+      }
+    }
+  }
+}

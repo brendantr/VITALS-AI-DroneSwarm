@@ -1,0 +1,32 @@
+{
+  "$id": "https://vitals.dev/schemas/acp/v0.2/types/status.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event_id", "ts", "type", "source", "payload"],
+  "properties": {
+    "schema": { "const": "acp.v0.2" },
+    "event_id": { "type": "string", "minLength": 8 },
+    "ts": { "type": "string" },
+    "type": { "const": "ACP.Status" },
+    "corr_id": { "type": "string" },
+    "span_id": { "type": "string" },
+    "idempotency_key": { "type": "string", "minLength": 8 },
+    "source": { "$ref": "../base.json#/$defs/source" },
+    "target": { "$ref": "../base.json#/$defs/target" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_event_id", "state"],
+      "properties": {
+        "ref_event_id": { "type": "string" },
+        "state": {
+          "type": "string",
+          "enum": ["proposed", "approved", "planning", "executing", "paused", "completed", "failed"]
+        },
+        "progress_pct": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "detail": { "type": "string" }
+      }
+    }
+  }
+}

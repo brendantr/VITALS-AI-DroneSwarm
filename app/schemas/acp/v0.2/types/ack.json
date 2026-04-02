@@ -1,0 +1,28 @@
+{
+  "$id": "https://vitals.dev/schemas/acp/v0.2/types/ack.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event_id", "ts", "type", "source", "payload"],
+  "properties": {
+    "schema": { "const": "acp.v0.2" },
+    "event_id": { "type": "string", "minLength": 8 },
+    "ts": { "type": "string" },
+    "type": { "const": "ACP.Ack" },
+    "corr_id": { "type": "string" },
+    "span_id": { "type": "string" },
+    "idempotency_key": { "type": "string", "minLength": 8 },
+    "source": { "$ref": "../base.json#/$defs/source" },
+    "target": { "$ref": "../base.json#/$defs/target" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_event_id", "status"],
+      "properties": {
+        "ref_event_id": { "type": "string" },
+        "status": { "type": "string", "enum": ["accepted", "rejected", "queued"] },
+        "message": { "type": "string" }
+      }
+    }
+  }
+}

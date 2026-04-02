@@ -10,6 +10,15 @@ class DronePath:
     drone_id: int
     path_points: list[tuple[float, float]] = field(default_factory=list)
 
+    def to_dict(self) -> dict:
+        return {
+            "drone_id": int(self.drone_id),
+            "path_points": [
+                {"lon": float(point[0]), "lat": float(point[1])}
+                for point in self.path_points
+            ],
+        }
+
 
 @dataclass
 class PathingCostMap:
@@ -26,6 +35,16 @@ class PathingCostMap:
             copied.set_drone_path(drone_id, list(drone_path.path_points))
         return copied
 
+    def to_dict(self) -> dict:
+        return {
+            "terrain_tile_id": self.terrain_tile_id,
+            "source": self.source,
+            "drone_paths": {
+                str(drone_id): drone_path.to_dict()
+                for drone_id, drone_path in sorted(self.drone_paths.items())
+            },
+        }
+
     @classmethod
     def from_assignments(
         cls,
@@ -38,6 +57,19 @@ class PathingCostMap:
             as_tuples = [(float(point.x), float(point.y)) for point in points]
             cost_map.set_drone_path(drone_id, as_tuples)
         return cost_map
+
+    @classmethod
+    def from_centroid_paths(
+        cls,
+        centroid_paths: dict[int, list],
+        terrain_tile_id: str | None = None,
+        source: str = "pathing",
+    ) -> "PathingCostMap":
+        return cls.from_assignments(
+            assignments=centroid_paths,
+            terrain_tile_id=terrain_tile_id,
+            source=source,
+        )
 
     @classmethod
     def from_cell_paths(
