@@ -462,11 +462,8 @@ class MapPage(QWidget):
 
     def show_path_visualization(self):
         """Embed the path plan as a tab instead of a popup."""
-        # If tab already exists, just switch to it
-        for i in range(self.center_tabs.count()):
-            if self.center_tabs.tabText(i) == "Path Plan":
-                self.center_tabs.setCurrentIndex(i)
-                return
+        # Rebuild the tab each time so newly added POIs and route edits are visible.
+        self._remove_tab_by_name("Path Plan")
 
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 

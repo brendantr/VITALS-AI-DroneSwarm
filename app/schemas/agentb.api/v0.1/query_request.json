@@ -1,0 +1,30 @@
+{
+  "$id": "https://vitals.dev/schemas/agentb.api/v0.1/query_request.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "type", "query"],
+  "properties": {
+    "schema": { "const": "agentb.api.v0.1" },
+    "type": { "const": "AgentB.QueryRequest" },
+    "query": { "type": "string", "minLength": 1 },
+    "n_results": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "k_init": { "type": "integer", "minimum": 1, "maximum": 500 },
+    "rerank": { "type": "boolean" },
+    "where": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "include_scores": { "type": "boolean" },
+    "include_metadata": { "type": "boolean" },
+    "corr_id": { "type": "string" },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "component": { "type": "string" },
+        "instance": { "type": "string" }
+      }
+    }
+  }
+}

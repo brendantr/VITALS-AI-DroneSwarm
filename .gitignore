@@ -17,6 +17,7 @@
 *.data
 *.json
 !schemas/**/*.json
+!app/schemas/**/*.json
 *.cfg
 !setup.cfg
 !cfg/yolov3*.cfg

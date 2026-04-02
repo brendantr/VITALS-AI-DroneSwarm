@@ -8,7 +8,7 @@ import geopandas as gpd
 import pandas as pd
 import matplotlib.pyplot as plt
 from rtree import index
-from shapely.geometry import Polygon, MultiPolygon, box
+from shapely.geometry import Point, Polygon, MultiPolygon, box
 from shapely.ops import unary_union
 import random
 from dataclasses import dataclass, field
@@ -26,11 +26,33 @@ class Tile:
         self.contains_count = {}
         self.in_searcharea = True
         self.total_count = 0
+        self.tile_id: str | None = None
+        self.row: int | None = None
+        self.col: int | None = None
+        self.polygon = None
         # All pathing cost maps that have been computed on this tile.
         self.pathing_cost_maps: list[PathingCostMap] = []
 
     def add_pathing_cost_map(self, cost_map: PathingCostMap) -> None:
         self.pathing_cost_maps.append(cost_map.clone())
+
+    def to_dict(self) -> dict[str, Any]:
+        centroid = None
+        bounds = None
+        if self.polygon is not None:
+            center = self.polygon.centroid
+            centroid = {"lat": float(center.y), "lon": float(center.x)}
+            bounds = [float(value) for value in self.polygon.bounds]
+        return {
+            "tile_id": self.tile_id,
+            "row": self.row,
+            "col": self.col,
+            "in_searcharea": bool(self.in_searcharea),
+            "total_count": int(self.total_count),
+            "contains_count": dict(self.contains_count or {}),
+            "centroid": centroid,
+            "bounds": bounds,
+        }
 
 
 @dataclass
@@ -49,6 +71,16 @@ class TerrainTileCostRecord:
     def add_dynamic_item(self, item_kind: str, metadata: dict[str, Any] | None = None) -> None:
         payload = {"kind": str(item_kind), "metadata": dict(metadata or {})}
         self.dynamic_items.append(payload)
+
+    def to_dict(self) -> dict[str, Any]:
+        tile_summary = self.osm_tile.to_dict() if hasattr(self.osm_tile, "to_dict") else None
+        return {
+            "tile_id": self.tile_id,
+            "t_tree_node_id": self.t_tree_node_id,
+            "tile": tile_summary,
+            "pathing_cost_maps": [cost_map.to_dict() for cost_map in self.pathing_cost_maps],
+            "dynamic_items": [dict(item) for item in self.dynamic_items],
+        }
 
 
 @dataclass
@@ -96,6 +128,43 @@ class TerrainCostMapRegistry:
     ) -> None:
         tile_record = self.get_or_create_tile(tile_id=tile_id, t_tree_node_id=t_tree_node_id, osm_tile=osm_tile)
         tile_record.add_dynamic_item(item_kind=item_kind, metadata=metadata)
+
+    def register_grid(self, grid: list[list[Tile]]) -> None:
+        for row in grid:
+            for tile in row:
+                tile_id = getattr(tile, "tile_id", None)
+                if not tile_id:
+                    continue
+                self.get_or_create_tile(tile_id=tile_id, t_tree_node_id=tile_id, osm_tile=tile)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "terrain_id": self.terrain_id,
+            "tiles": [self.tiles[tile_id].to_dict() for tile_id in sorted(self.tiles)],
+        }
+
+
+def build_tile_id(terrain_id: str, row: int, col: int) -> str:
+    return f"{terrain_id}:{row}:{col}"
+
+
+def point_to_grid_cell(grid: list[list[Tile]], lat: float, lon: float) -> tuple[int, int] | None:
+    point = Point(float(lon), float(lat))
+    for row_index, row in enumerate(grid):
+        for col_index, tile in enumerate(row):
+            polygon = getattr(tile, "polygon", None)
+            if polygon is None or not getattr(tile, "in_searcharea", False):
+                continue
+            if polygon.contains(point) or polygon.touches(point):
+                return row_index, col_index
+    return None
+
+
+def cell_centroid_latlon(grid: list[list[Tile]], cell: tuple[int, int]) -> tuple[float, float]:
+    row, col = cell
+    polygon = grid[row][col].polygon
+    centroid = polygon.centroid
+    return float(centroid.y), float(centroid.x)
 
 
 def haversine(lat1, lon1, lat2, lon2):

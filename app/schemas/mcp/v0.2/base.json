@@ -1,0 +1,27 @@
+{
+  "$id": "https://vitals.dev/schemas/mcp/v0.2/base.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "component"],
+      "properties": {
+        "system": { "type": "string" },
+        "component": { "type": "string", "enum": ["AgentA", "AgentB", "AgentC", "AgentD"] },
+        "instance": { "type": "string" }
+      }
+    },
+    "geo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lat", "lon"],
+      "properties": {
+        "lat": { "type": "number" },
+        "lon": { "type": "number" },
+        "alt_m": { "type": "number" }
+      }
+    }
+  }
+}

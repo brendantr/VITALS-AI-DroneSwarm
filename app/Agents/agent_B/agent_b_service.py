@@ -105,6 +105,12 @@ def canonical_text(msg: Dict[str, Any]) -> str:
 
     label = payload.get("label") or payload.get("intent_kind") or payload.get("edit_kind") or ""
     sector = payload.get("sector") or (payload.get("area") or {}).get("sector") or ""
+    state = payload.get("state") or ""
+    outcome = payload.get("outcome") or ""
+    detail = payload.get("detail") or ""
+    summary = payload.get("summary") or ""
+    artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), dict) else {}
+    operation = artifacts.get("operation") or ""
 
     score = payload.get("confidence")
     if score is None:
@@ -118,10 +124,20 @@ def canonical_text(msg: Dict[str, Any]) -> str:
         parts.append(f"label={label}")
     if sector:
         parts.append(f"sector={sector}")
+    if state:
+        parts.append(f"state={state}")
+    if outcome:
+        parts.append(f"outcome={outcome}")
+    if operation:
+        parts.append(f"operation={operation}")
     if isinstance(score, (int, float)):
         parts.append(f"score={float(score):.2f}")
     if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
         parts.append(f"geo=({lat:.6f},{lon:.6f})")
+    if summary:
+        parts.append(f"summary={summary}")
+    if detail:
+        parts.append(f"detail={detail}")
 
     return " | ".join(parts)
 
@@ -165,6 +181,12 @@ def chroma_metadata(msg: Dict[str, Any]) -> Dict[str, Any]:
         meta_raw["confidence"] = payload.get("confidence")
     if "priority" in payload and "confidence" not in payload:
         meta_raw["priority"] = payload.get("priority")
+    if "state" in payload:
+        meta_raw["state"] = payload.get("state")
+    if "outcome" in payload:
+        meta_raw["outcome"] = payload.get("outcome")
+    if isinstance(payload.get("artifacts"), dict) and "operation" in payload["artifacts"]:
+        meta_raw["operation"] = payload["artifacts"].get("operation")
 
     meta: Dict[str, Any] = {}
     for k, v in meta_raw.items():

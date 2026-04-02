@@ -1,27 +1,23 @@
-"""Agent D message ingress scaffold.
-
-This module is a lightweight ACP ingress entrypoint for local testing while
-Agent D planning integration is being wired.
-"""
+"""Transport-neutral entrypoint for Agent D ingestion."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any
 
-ACP_SCHEMA_DIR = Path(__file__).resolve().parent / "schemas" / "acpV0.1"
-if str(ACP_SCHEMA_DIR) not in sys.path:
-    sys.path.insert(0, str(ACP_SCHEMA_DIR))
+from Agents.Agent_D.service import AgentDService
 
-from dispatcher import parse_agent_d_message
+
+_SERVICE = AgentDService()
+
+
+def ingest_message(raw: dict[str, Any], context: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _SERVICE.ingest_message(raw, context=context)
+
+
+def get_service() -> AgentDService:
+    return _SERVICE
 
 
 def ingest_acp_message(raw: dict[str, Any]) -> dict[str, Any]:
-    """Validate and route one ACP message into Agent D."""
-    parsed = parse_agent_d_message(raw)
-    return {
-        "ok": True,
-        "parsed_type": type(parsed).__name__,
-        "message_id": raw.get("envelope", {}).get("message_id"),
-    }
+    """Backward-compatible wrapper kept for older imports."""
+    return ingest_message(raw)

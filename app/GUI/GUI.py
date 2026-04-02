@@ -285,6 +285,12 @@ class GUI:
             self.remove_detection_point(marker_id)
 
     def finish_adding_detection_points(self):
+        try:
+            self.missionState.register_manual_detection_points(self.detection_points)
+        except Exception as exc:
+            self.create_system_chat_message(f"Unable to register detection points with Agent D: {exc}")
+            return
+
         self.isAddingDetectionPoints = False
         try:
             self.map_page.map_widget.marker_right_clicked.disconnect(self._on_detection_marker_right_click)
@@ -294,8 +300,7 @@ class GUI:
         for marker_id in self.detection_point_marker_ids:
             self.map_page.map_widget.remove_marker(marker_id)
         self.detection_point_marker_ids = []
-
-        self.missionState.setDetectionPoints(self.detection_points)
+        self.detection_points = []
 
     # ── Debug functions ───────────────────────────────────
 

@@ -1,0 +1,10 @@
+{
+  "$id": "https://vitals.dev/schemas/acp/v0.2/message.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    { "$ref": "types/intent.json" },
+    { "$ref": "types/ack.json" },
+    { "$ref": "types/status.json" },
+    { "$ref": "types/result.json" }
+  ]
+}

@@ -86,6 +86,12 @@ def _canonical_text_fallback(msg: Dict[str, Any]) -> Optional[str]:
     # Common high-value fields across MCP/ACP
     label = payload.get("label") or payload.get("intent_kind") or payload.get("edit_kind") or ""
     sector = payload.get("sector") or (payload.get("area") or {}).get("sector") or ""
+    state = payload.get("state") or ""
+    outcome = payload.get("outcome") or ""
+    detail = payload.get("detail") or ""
+    summary = payload.get("summary") or ""
+    artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), dict) else {}
+    operation = artifacts.get("operation") or ""
     conf = payload.get("confidence") or payload.get("priority")
     geo = msg.get("geo") or {}
     lat = geo.get("lat")
@@ -96,10 +102,20 @@ def _canonical_text_fallback(msg: Dict[str, Any]) -> Optional[str]:
         parts.append(f"label={label}")
     if sector:
         parts.append(f"sector={sector}")
+    if state:
+        parts.append(f"state={state}")
+    if outcome:
+        parts.append(f"outcome={outcome}")
+    if operation:
+        parts.append(f"operation={operation}")
     if isinstance(conf, (int, float)):
         parts.append(f"score={float(conf):.2f}")
     if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
         parts.append(f"geo=({lat:.6f},{lon:.6f})")
+    if summary:
+        parts.append(f"summary={summary}")
+    if detail:
+        parts.append(f"detail={detail}")
 
     out = " | ".join(parts).strip()
     return out if out else None
@@ -187,7 +203,7 @@ class ParquetEventsWriter:
 
     def normalize_message(self, msg: Dict[str, Any], mission_id: str, text_override: Optional[str] = None) -> Dict[str, Any]:
         schema = msg.get("schema")
-        if schema == "mcp.v0.1":
+        if schema in {"mcp.v0.1", "mcp.v0.2"}:
             return self.normalize_mcp_message(msg, mission_id=mission_id, text_override=text_override)
         if schema == "acp.v0.2":
             return self.normalize_acp_message(msg, mission_id=mission_id, text_override=text_override)
@@ -197,8 +213,8 @@ class ParquetEventsWriter:
 
     def normalize_mcp_message(self, msg: Dict[str, Any], mission_id: str, text_override: Optional[str] = None) -> Dict[str, Any]:
         schema = msg.get("schema")
-        if schema != "mcp.v0.1":
-            raise ValueError(f"Expected schema 'mcp.v0.1', got: {schema!r}")
+        if schema not in {"mcp.v0.1", "mcp.v0.2"}:
+            raise ValueError(f"Expected schema 'mcp.v0.1' or 'mcp.v0.2', got: {schema!r}")
 
         event_id = msg.get("event_id")
         ts_raw = msg.get("ts")
