@@ -7,7 +7,7 @@ from ...CostMaps.terrain_CostMap import (
     find_extreme_coordinates,
     rectangle_side_lengths,
 )
-from ..postgis.postgis_handler import query_tile_counts_4326
+from ..postgis.postgis_handler import query_features_in_polygon, query_tile_counts_4326
 from rtree import index
 
 DB_URL = "postgresql://renderer:renderer@localhost:5432/gis"
@@ -62,7 +62,8 @@ def _build_grid_from_tile_counts(tile_rows, search_tags, terrain_id):
             tile.contains["highway"] = (["highway"] * highway_ct) + (["pedestrian_path"] * ped_ct)
 
         tile.total_count = int(row.get("total_count", building_ct + water_ct + highway_ct + ped_ct))
-        viable.append((y, x))
+        if tile.total_count > 0:
+            viable.append((y, x))
 
     return grid, viable
 
@@ -91,6 +92,61 @@ def _build_visual_rtree_from_tile_counts(tile_rows):
         rtree_index.insert(idx, geom.bounds, obj=item)
 
     return rtree_index
+
+
+def _sanitize_tag_value(value) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return "unknown"
+    return "".join(ch if ch.isalnum() else "_" for ch in text).strip("_") or "unknown"
+
+
+def _feature_membership_token(feature: dict) -> tuple[str, str]:
+    feature_type = str(feature.get("feature_type") or "unknown")
+    osm_id = feature.get("osm_id")
+    if feature_type == "building":
+        return "building", f"building:{osm_id}"
+    if feature_type == "water":
+        return "water", f"water:{osm_id}"
+    if feature_type == "highway":
+        return "highway", f"highway:{osm_id}:{_sanitize_tag_value(feature.get('tag_value'))}"
+    return feature_type, f"{feature_type}:{osm_id}"
+
+
+def _enrich_grid_with_feature_membership(grid, feature_rows, search_tags):
+    if grid is None:
+        return
+
+    for row in grid:
+        for tile in row:
+            contains = getattr(tile, "contains", {}) or {}
+            for tag in search_tags:
+                contains[tag] = []
+            tile.contains = contains
+
+    for feature in feature_rows or []:
+        geometry = feature.get("geometry")
+        if geometry is None:
+            continue
+        bucket, token = _feature_membership_token(feature)
+        if bucket not in search_tags:
+            continue
+        for row in grid:
+            for tile in row:
+                polygon = getattr(tile, "polygon", None)
+                if polygon is None or not getattr(tile, "in_searcharea", False):
+                    continue
+                if not geometry.intersects(polygon):
+                    continue
+                if token not in tile.contains[bucket]:
+                    tile.contains[bucket].append(token)
+
+    for row in grid:
+        for tile in row:
+            contains = getattr(tile, "contains", {}) or {}
+            for tag in search_tags:
+                contains[tag] = sorted(set(contains.get(tag, [])))
+            tile.contains = contains
 
 
 def create_search_area(
@@ -130,6 +186,8 @@ def create_search_area(
     grid, viable_grid_positions = _build_grid_from_tile_counts(tile_rows, search_tags, terrain_id)
     if grid is None:
         return None, None, None
+    feature_rows = query_features_in_polygon(postgis_points)
+    _enrich_grid_with_feature_membership(grid, feature_rows, search_tags)
 
     rtree_index = _build_visual_rtree_from_tile_counts(tile_rows)
     return rtree_index, grid, viable_grid_positions

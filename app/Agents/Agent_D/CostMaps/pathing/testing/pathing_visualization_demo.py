@@ -31,12 +31,12 @@ try:
     from ...pathing_CostMap import PathingCostMap
     from ...terrain_CostMap import TerrainCostMapRegistry
 except ImportError:  # Script execution fallback.
-    AGENT_D_DIR = Path(__file__).resolve().parents[3]
-    if str(AGENT_D_DIR) not in sys.path:
-        sys.path.insert(0, str(AGENT_D_DIR))
-    from CostMaps.pathing.path import search_grid_with_drones  # noqa: E402
-    from CostMaps.pathing_CostMap import PathingCostMap  # noqa: E402
-    from CostMaps.terrain_CostMap import TerrainCostMapRegistry  # noqa: E402
+    APP_DIR = Path(__file__).resolve().parents[5]
+    if str(APP_DIR) not in sys.path:
+        sys.path.insert(0, str(APP_DIR))
+    from Agents.Agent_D.CostMaps.pathing.path import search_grid_with_drones  # noqa: E402
+    from Agents.Agent_D.CostMaps.pathing_CostMap import PathingCostMap  # noqa: E402
+    from Agents.Agent_D.CostMaps.terrain_CostMap import TerrainCostMapRegistry  # noqa: E402
 
 
 @dataclass
@@ -213,44 +213,50 @@ def _create_mock_features(
     extra_buildings_delta: int = 0,
     extra_water_delta: int = 0,
     extra_roads_delta: int = 0,
+    include_base_items: bool = True,
 ) -> list[MockFeature]:
     """Create deterministic OSM-like objects used to populate tiles."""
 
     def _scaled(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
         return [(x * scale, y * scale) for (x, y) in points]
 
-    features: list[MockFeature] = [
-        # Larger buildings
-        MockFeature(Polygon(_scaled([(2.0, 2.0), (3.1, 2.0), (3.1, 3.2), (2.0, 3.2)])), {"building": "school"}),
-        MockFeature(Polygon(_scaled([(5.1, 6.2), (6.2, 6.2), (6.2, 7.4), (5.1, 7.4)])), {"building": "residential_a"}),
-        MockFeature(Polygon(_scaled([(8.2, 3.0), (9.2, 3.0), (9.2, 4.1), (8.2, 4.1)])), {"building": "hospital"}),
-        MockFeature(Polygon(_scaled([(10.3, 8.8), (11.3, 8.8), (11.3, 9.9), (10.3, 9.9)])), {"building": "warehouse"}),
-        # Smaller buildings for denser multi-drone testing
-        MockFeature(Polygon(_scaled([(1.7, 5.0), (2.2, 5.0), (2.2, 5.5), (1.7, 5.5)])), {"building": "shed_1"}),
-        MockFeature(Polygon(_scaled([(2.8, 9.4), (3.3, 9.4), (3.3, 9.9), (2.8, 9.9)])), {"building": "shed_2"}),
-        MockFeature(Polygon(_scaled([(4.2, 4.0), (4.8, 4.0), (4.8, 4.6), (4.2, 4.6)])), {"building": "clinic_annex"}),
-        MockFeature(Polygon(_scaled([(6.9, 2.5), (7.5, 2.5), (7.5, 3.1), (6.9, 3.1)])), {"building": "substation"}),
-        MockFeature(Polygon(_scaled([(7.2, 10.0), (7.8, 10.0), (7.8, 10.6), (7.2, 10.6)])), {"building": "apartment_a"}),
-        MockFeature(Polygon(_scaled([(8.7, 11.0), (9.3, 11.0), (9.3, 11.6), (8.7, 11.6)])), {"building": "apartment_b"}),
-        MockFeature(Polygon(_scaled([(10.9, 4.8), (11.4, 4.8), (11.4, 5.3), (10.9, 5.3)])), {"building": "office_small"}),
-        MockFeature(Polygon(_scaled([(11.8, 2.3), (12.3, 2.3), (12.3, 2.8), (11.8, 2.8)])), {"building": "garage_east"}),
-        MockFeature(Polygon(_scaled([(12.0, 6.8), (12.5, 6.8), (12.5, 7.3), (12.0, 7.3)])), {"building": "storefront"}),
-        MockFeature(Polygon(_scaled([(3.7, 11.0), (4.2, 11.0), (4.2, 11.5), (3.7, 11.5)])), {"building": "garage_north"}),
-        # Water
-        MockFeature(Polygon(_scaled([(3.6, 7.8), (5.8, 7.8), (5.8, 10.1), (3.6, 10.1)])), {"water": "pond_main"}),
-        MockFeature(Polygon(_scaled([(8.8, 7.4), (11.2, 7.4), (11.2, 8.5), (8.8, 8.5)])), {"water": "riverbank_west"}),
-        MockFeature(Polygon(_scaled([(6.2, 11.7), (7.1, 11.7), (7.1, 12.3), (6.2, 12.3)])), {"water": "retention_1"}),
-        MockFeature(Polygon(_scaled([(12.2, 10.8), (13.0, 10.8), (13.0, 11.5), (12.2, 11.5)])), {"water": "retention_2"}),
-        # Highways / roads
-        MockFeature(LineString(_scaled([(0.9, 1.3), (5.8, 1.6), (10.6, 2.0), (13.2, 2.4)])), {"highway": "primary"}),
-        MockFeature(LineString(_scaled([(1.1, 12.9), (6.5, 9.3), (13.0, 6.6)])), {"highway": "secondary"}),
-        MockFeature(LineString(_scaled([(6.3, 0.8), (6.3, 13.3)])), {"highway": "residential"}),
-        MockFeature(LineString(_scaled([(2.0, 6.0), (12.8, 6.0)])), {"highway": "service"}),
-    ]
+    features: list[MockFeature] = []
+    if include_base_items:
+        features = [
+            # Larger buildings
+            MockFeature(Polygon(_scaled([(2.0, 2.0), (3.1, 2.0), (3.1, 3.2), (2.0, 3.2)])), {"building": "school"}),
+            MockFeature(Polygon(_scaled([(5.1, 6.2), (6.2, 6.2), (6.2, 7.4), (5.1, 7.4)])), {"building": "residential_a"}),
+            MockFeature(Polygon(_scaled([(8.2, 3.0), (9.2, 3.0), (9.2, 4.1), (8.2, 4.1)])), {"building": "hospital"}),
+            MockFeature(Polygon(_scaled([(10.3, 8.8), (11.3, 8.8), (11.3, 9.9), (10.3, 9.9)])), {"building": "warehouse"}),
+            # Smaller buildings for denser multi-drone testing
+            MockFeature(Polygon(_scaled([(1.7, 5.0), (2.2, 5.0), (2.2, 5.5), (1.7, 5.5)])), {"building": "shed_1"}),
+            MockFeature(Polygon(_scaled([(2.8, 9.4), (3.3, 9.4), (3.3, 9.9), (2.8, 9.9)])), {"building": "shed_2"}),
+            MockFeature(Polygon(_scaled([(4.2, 4.0), (4.8, 4.0), (4.8, 4.6), (4.2, 4.6)])), {"building": "clinic_annex"}),
+            MockFeature(Polygon(_scaled([(6.9, 2.5), (7.5, 2.5), (7.5, 3.1), (6.9, 3.1)])), {"building": "substation"}),
+            MockFeature(Polygon(_scaled([(7.2, 10.0), (7.8, 10.0), (7.8, 10.6), (7.2, 10.6)])), {"building": "apartment_a"}),
+            MockFeature(Polygon(_scaled([(8.7, 11.0), (9.3, 11.0), (9.3, 11.6), (8.7, 11.6)])), {"building": "apartment_b"}),
+            MockFeature(Polygon(_scaled([(10.9, 4.8), (11.4, 4.8), (11.4, 5.3), (10.9, 5.3)])), {"building": "office_small"}),
+            MockFeature(Polygon(_scaled([(11.8, 2.3), (12.3, 2.3), (12.3, 2.8), (11.8, 2.8)])), {"building": "garage_east"}),
+            MockFeature(Polygon(_scaled([(12.0, 6.8), (12.5, 6.8), (12.5, 7.3), (12.0, 7.3)])), {"building": "storefront"}),
+            MockFeature(Polygon(_scaled([(3.7, 11.0), (4.2, 11.0), (4.2, 11.5), (3.7, 11.5)])), {"building": "garage_north"}),
+            # Water
+            MockFeature(Polygon(_scaled([(3.6, 7.8), (5.8, 7.8), (5.8, 10.1), (3.6, 10.1)])), {"water": "pond_main"}),
+            MockFeature(Polygon(_scaled([(8.8, 7.4), (11.2, 7.4), (11.2, 8.5), (8.8, 8.5)])), {"water": "riverbank_west"}),
+            MockFeature(Polygon(_scaled([(6.2, 11.7), (7.1, 11.7), (7.1, 12.3), (6.2, 12.3)])), {"water": "retention_1"}),
+            MockFeature(Polygon(_scaled([(12.2, 10.8), (13.0, 10.8), (13.0, 11.5), (12.2, 11.5)])), {"water": "retention_2"}),
+            # Highways / roads
+            MockFeature(LineString(_scaled([(0.9, 1.3), (5.8, 1.6), (10.6, 2.0), (13.2, 2.4)])), {"highway": "primary"}),
+            MockFeature(LineString(_scaled([(1.1, 12.9), (6.5, 9.3), (13.0, 6.6)])), {"highway": "secondary"}),
+            MockFeature(LineString(_scaled([(6.3, 0.8), (6.3, 13.3)])), {"highway": "residential"}),
+            MockFeature(LineString(_scaled([(2.0, 6.0), (12.8, 6.0)])), {"highway": "service"}),
+        ]
 
     # Scale-up features for larger drone counts: more small buildings/water and extra roads.
     rng = random.Random(9000 + feature_level)
-    base_extra_buildings, base_extra_water, base_extra_roads = _generated_feature_counts(feature_level)
+    if include_base_items:
+        base_extra_buildings, base_extra_water, base_extra_roads = _generated_feature_counts(feature_level)
+    else:
+        base_extra_buildings, base_extra_water, base_extra_roads = (0, 0, 0)
     extra_buildings = max(0, base_extra_buildings + int(extra_buildings_delta))
     extra_water = max(0, base_extra_water + int(extra_water_delta))
     extra_roads = max(0, base_extra_roads + int(extra_roads_delta))
@@ -316,6 +322,7 @@ def _create_demo_grid(
     extra_buildings_delta: int = 0,
     extra_water_delta: int = 0,
     extra_roads_delta: int = 0,
+    include_items: bool = True,
 ) -> tuple[list[list[DemoTile]], list[MockFeature], BaseStation]:
     """Create a deterministic grid populated by OSM-like features."""
 
@@ -326,6 +333,7 @@ def _create_demo_grid(
         extra_buildings_delta=extra_buildings_delta,
         extra_water_delta=extra_water_delta,
         extra_roads_delta=extra_roads_delta,
+        include_base_items=include_items,
     )
 
     search_area = Polygon([(0.5 * scale, 0.4 * scale), (13.7 * scale, 0.4 * scale), (13.5 * scale, 13.4 * scale), (0.4 * scale, 13.2 * scale)])
@@ -676,6 +684,7 @@ def run_demo(
     extra_buildings_delta: int = 0,
     extra_water_delta: int = 0,
     extra_roads_delta: int = 0,
+    include_items: bool = True,
 ) -> dict[int, list]:
     drone_count = max(1, int(drone_count))
     if auto_scale:
@@ -693,13 +702,17 @@ def run_demo(
         extra_buildings_delta=extra_buildings_delta,
         extra_water_delta=extra_water_delta,
         extra_roads_delta=extra_roads_delta,
+        include_items=include_items,
     )
     drone_starts = [(base.row, base.col) for _ in range(drone_count)]
     assignments = search_grid_with_drones(grid, drone_positions=drone_starts, num_drones=drone_count)
     _ = PathingCostMap.from_assignments(assignments)
     jobs = _build_demo_jobs(assignments, grid)
 
-    print(f"\n=== Demo: drones={drone_count}, grid={grid_size}x{grid_size}, feature_level={feature_level} ===")
+    print(
+        f"\n=== Demo: drones={drone_count}, grid={grid_size}x{grid_size}, "
+        f"feature_level={feature_level}, include_items={include_items} ==="
+    )
     print("Drone destination counts:")
     max_rows = 25
     for idx, drone_id in enumerate(sorted(assignments)):
@@ -897,7 +910,7 @@ def _rebalance_for_added_drones(
     return _cells_to_assignments(grid, cell_paths)
 
 
-def run_interactive_demo() -> None:
+def run_interactive_demo(initial_include_items: bool = True) -> None:
     fig = plt.figure(figsize=(15, 10))
     ax_map = fig.add_axes([0.05, 0.30, 0.67, 0.66])
     ax_stats = fig.add_axes([0.74, 0.32, 0.24, 0.64])
@@ -935,8 +948,8 @@ def run_interactive_demo() -> None:
     # Layer 5: Export GIF
     fig.text(0.945, 0.124, "Export GIF", ha="center", va="bottom", fontsize=9)
     ax_export_gif = fig.add_axes([0.915, 0.071, 0.06, 0.045])
-    # Auto-scale option below all layers.
-    ax_auto = fig.add_axes([0.80, 0.005, 0.17, 0.055])
+    # Auto-scale and item toggles below all layers.
+    ax_auto = fig.add_axes([0.78, 0.002, 0.20, 0.085])
 
     apply_button = Button(ax_apply, "")
     reset_button = Button(ax_reset, "")
@@ -949,11 +962,16 @@ def run_interactive_demo() -> None:
     add_water_button = Button(ax_add_water, "")
     add_road_button = Button(ax_add_road, "")
     export_gif_button = Button(ax_export_gif, "")
-    auto_scale_toggle = CheckButtons(ax_auto, ["Auto-scale grid"], [True])
+    auto_scale_toggle = CheckButtons(
+        ax_auto,
+        ["Auto-scale grid", "Include items"],
+        [True, bool(initial_include_items)],
+    )
 
     controls: dict[str, NumericControl] = {}
     state = {
         "auto_scale": True,
+        "include_items": bool(initial_include_items),
         "suspend_submit": False,
         "simulate_running": False,
         "current_grid": None,
@@ -1068,6 +1086,7 @@ def run_interactive_demo() -> None:
             extra_buildings_delta=int(pending_deltas["building_delta"]),
             extra_water_delta=int(pending_deltas["water_delta"]),
             extra_roads_delta=int(pending_deltas["road_delta"]),
+            include_items=bool(state["include_items"]),
         )
 
     def _queue_or_apply_item_addition(item_kind: str) -> None:
@@ -1135,13 +1154,23 @@ def run_interactive_demo() -> None:
         building_delta = int(pending_deltas["building_delta"])
         water_delta = int(pending_deltas["water_delta"])
         road_delta = int(pending_deltas["road_delta"])
-        signature = (grid_size, feature_level, building_delta, water_delta, road_delta, cell_size_m, bool(state["auto_scale"]))
+        signature = (
+            grid_size,
+            feature_level,
+            building_delta,
+            water_delta,
+            road_delta,
+            cell_size_m,
+            bool(state["auto_scale"]),
+            bool(state["include_items"]),
+        )
         grid, features, base = _create_demo_grid(
             size=grid_size,
             feature_level=feature_level,
             extra_buildings_delta=building_delta,
             extra_water_delta=water_delta,
             extra_roads_delta=road_delta,
+            include_items=bool(state["include_items"]),
         )
         prev_assignments = state["current_assignments"]
         prev_drone_count = state["last_drone_count"]
@@ -1183,7 +1212,10 @@ def run_interactive_demo() -> None:
         state["last_drone_count"] = drones
         _draw_interactive_scene(ax_map, grid, features, base, assignments, cell_size_m=cell_size_m)
 
-        base_b, base_w, base_r = _generated_feature_counts(feature_level)
+        if state["include_items"]:
+            base_b, base_w, base_r = _generated_feature_counts(feature_level)
+        else:
+            base_b, base_w, base_r = (0, 0, 0)
         final_b = max(0, base_b + building_delta)
         final_w = max(0, base_w + water_delta)
         final_r = max(0, base_r + road_delta)
@@ -1202,6 +1234,7 @@ def run_interactive_demo() -> None:
                 f"Grid: {grid_size}x{grid_size}\n"
                 f"Cell size: {cell_size_m} m\n"
                 f"Feature level: {feature_level}\n"
+                f"Include items: {state['include_items']}\n"
                 f"Generated buildings: {final_b}\n"
                 f"Generated water: {final_w}\n"
                 f"Generated roads: {final_r}\n\n"
@@ -1583,6 +1616,7 @@ def run_interactive_demo() -> None:
                             extra_buildings_delta=int(pending_deltas["building_delta"]),
                             extra_water_delta=int(pending_deltas["water_delta"]),
                             extra_roads_delta=int(pending_deltas["road_delta"]),
+                            include_items=bool(state["include_items"]),
                         )
                         new_counts = _count_searchable_cells_by_kind(test_grid)
                         count_key = kind_to_count_key[item_kind]
@@ -1793,8 +1827,10 @@ def run_interactive_demo() -> None:
         _queue_or_apply_item_addition("road")
 
     def _toggle_auto(_label):
-        state["auto_scale"] = bool(auto_scale_toggle.get_status()[0])
-        _set_status("Auto-scale toggled. Press Apply to update simulation.")
+        statuses = auto_scale_toggle.get_status()
+        state["auto_scale"] = bool(statuses[0])
+        state["include_items"] = bool(statuses[1])
+        _set_status("Options toggled. Press Apply to update simulation.")
 
     def _reset(_event):
         for key, control in controls.items():
@@ -1814,9 +1850,13 @@ def run_interactive_demo() -> None:
         state["last_drone_count"] = None
         state["sim_drone_delta_request"] = 0
         state["sim_paused"] = False
+        state["include_items"] = bool(initial_include_items)
         state["sim_item_add_requests"] = {"building": 0, "water": 0, "road": 0}
         if not auto_scale_toggle.get_status()[0]:
             auto_scale_toggle.set_active(0)
+        desired_items_enabled = bool(initial_include_items)
+        if auto_scale_toggle.get_status()[1] != desired_items_enabled:
+            auto_scale_toggle.set_active(1)
         _set_status("Controls reset to defaults.")
         _render()
 
@@ -1893,9 +1933,14 @@ def main() -> None:
         default=None,
         help="Optional override for grid size.",
     )
+    parser.add_argument(
+        "--no-items",
+        action="store_true",
+        help="Start the demo without mock OSM items so the fallback pathing behavior is shown.",
+    )
     args = parser.parse_args()
     if args.interactive:
-        run_interactive_demo()
+        run_interactive_demo(initial_include_items=not args.no_items)
         return
 
     run_demo(
@@ -1904,6 +1949,7 @@ def main() -> None:
         show_plots=not args.no_show,
         auto_scale=not args.no_auto_scale,
         force_grid_size=args.grid_size,
+        include_items=not args.no_items,
     )
 
 

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import copy
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
-from shapely.geometry import box
+from shapely.geometry import LineString, Polygon, box
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -16,6 +17,11 @@ if str(APP_DIR) not in sys.path:
 from Agents.Agent_D.CostMaps.pathing.path import build_search_plan, cell_paths_to_centroids
 from Agents.Agent_D.CostMaps.pathing_CostMap import PathingCostMap
 from Agents.Agent_D.CostMaps.terrain_CostMap import Tile, TerrainCostMapRegistry, build_tile_id
+from Agents.Agent_D.OSM_Database.postgis.postgis_handler import _build_feature_records
+from Agents.Agent_D.OSM_Database.query.terrain_queries import (
+    _build_grid_from_tile_counts,
+    _enrich_grid_with_feature_membership,
+)
 from Agents.Agent_D.service import AgentDService, AgentDSession, AgentDValidationError
 
 
@@ -40,9 +46,23 @@ def _make_grid(
     cols: int,
     building_cells: set[tuple[int, int]] | None = None,
     road_cells: set[tuple[int, int]] | None = None,
+    water_cells: set[tuple[int, int]] | None = None,
+    searcharea_cells: set[tuple[int, int]] | None = None,
+    building_labels: dict[tuple[int, int], list[str] | str] | None = None,
+    road_labels: dict[tuple[int, int], list[str] | str] | None = None,
+    water_labels: dict[tuple[int, int], list[str] | str] | None = None,
 ) -> tuple[list[list[Tile]], list[tuple[int, int]]]:
     building_cells = building_cells or set()
     road_cells = road_cells or set()
+    water_cells = water_cells or set()
+    building_labels = building_labels or {}
+    road_labels = road_labels or {}
+    water_labels = water_labels or {}
+    searcharea_cells = searcharea_cells or {
+        (row, col)
+        for row in range(rows)
+        for col in range(cols)
+    }
     grid: list[list[Tile]] = []
     viable: list[tuple[int, int]] = []
     for row in range(rows):
@@ -53,18 +73,31 @@ def _make_grid(
             tile.col = col
             tile.tile_id = build_tile_id(terrain_id, row, col)
             tile.polygon = box(float(col), float(row), float(col + 1), float(row + 1))
-            tile.in_searcharea = True
+            tile.in_searcharea = (row, col) in searcharea_cells
             tile.contains = {"building": [], "water": [], "highway": []}
             tile.contains_count = {"building": 0, "water": 0, "highway": 0}
             if (row, col) in building_cells:
-                tile.contains["building"] = [f"building-{row}-{col}"]
+                labels = building_labels.get((row, col), f"building:{row}:{col}")
+                if isinstance(labels, str):
+                    labels = [labels]
+                tile.contains["building"] = list(labels)
                 tile.contains_count["building"] = 1
                 tile.total_count += 1
             if (row, col) in road_cells:
-                tile.contains["highway"] = [f"road-{row}-{col}"]
+                labels = road_labels.get((row, col), f"highway:{row}:{col}:residential")
+                if isinstance(labels, str):
+                    labels = [labels]
+                tile.contains["highway"] = list(labels)
                 tile.contains_count["highway"] = 1
                 tile.total_count += 1
-            if tile.total_count > 0:
+            if (row, col) in water_cells:
+                labels = water_labels.get((row, col), f"water:{row}:{col}")
+                if isinstance(labels, str):
+                    labels = [labels]
+                tile.contains["water"] = list(labels)
+                tile.contains_count["water"] = 1
+                tile.total_count += 1
+            if tile.in_searcharea and tile.total_count > 0:
                 viable.append((row, col))
             grid_row.append(tile)
         grid.append(grid_row)
@@ -201,7 +234,7 @@ def test_search_area_build_falls_back_to_cell_search_and_emits_results(monkeypat
     assert session is not None
     assert set(session.raw_cell_paths) == {1, 2}
     covered = {cell for cells in session.raw_cell_paths.values() for cell in cells}
-    assert covered == {(0, 0), (0, 1), (0, 2), (0, 3)}
+    assert covered == {(0, 0), (0, 2)}
     assert all(session.raw_cell_paths[drone_id] for drone_id in (1, 2))
     assert [msg["type"] for msg in egress.agent_c_messages] == [
         "ACP.Status",
@@ -313,20 +346,324 @@ def test_parquet_writer_accepts_mcp_v0_2_messages():
     assert record["text"] == "person detected"
 
 
-def test_build_search_plan_covers_all_cells_when_osm_returns_no_items():
-    grid, viable = _make_grid(terrain_id="plan", rows=2, cols=2)
+def test_build_search_plan_osm_routes_follow_local_road_flow_with_side_excursions():
+    road_cells = {
+        (1, 0),
+        (1, 1),
+        (1, 2),
+        (1, 3),
+        (1, 4),
+        (1, 5),
+        (2, 2),
+        (3, 2),
+    }
+    building_cells = {
+        (2, 1),
+        (2, 3),
+        (3, 1),
+        (3, 3),
+    }
+    road_labels = {
+        (1, 0): ["highway:100:primary"],
+        (1, 1): ["highway:100:primary"],
+        (1, 2): ["highway:100:primary", "highway:101:residential"],
+        (1, 3): ["highway:100:primary"],
+        (1, 4): ["highway:100:primary"],
+        (1, 5): ["highway:100:primary"],
+        (2, 2): ["highway:101:residential"],
+        (3, 2): ["highway:101:residential"],
+    }
+    building_labels = {
+        (2, 1): ["building:201"],
+        (2, 3): ["building:202"],
+        (3, 1): ["building:203"],
+        (3, 3): ["building:204"],
+    }
+    grid, viable = _make_grid(
+        terrain_id="osm-flow",
+        rows=5,
+        cols=7,
+        road_cells=road_cells,
+        building_cells=building_cells,
+        road_labels=road_labels,
+        building_labels=building_labels,
+    )
 
     plan = build_search_plan(
         grid,
-        drone_positions=[(0, 0), (1, 1)],
+        drone_positions=[(1, 0)],
+        viable_grid_positions=viable,
+        num_drones=1,
+    )
+
+    route = plan.cell_paths[0]
+    first_index = {cell: route.index(cell) for cell in set(route)}
+    jumps = [
+        max(abs(current[0] - nxt[0]), abs(current[1] - nxt[1]))
+        for current, nxt in zip(route, route[1:])
+    ]
+
+    assert plan.fallback_mode == "object_search"
+    assert set(route) >= road_cells | building_cells
+    assert max(jumps) <= 1
+    assert first_index[(1, 1)] < first_index[(2, 1)] < first_index[(1, 4)]
+    assert first_index[(1, 3)] < first_index[(2, 3)] < first_index[(1, 5)]
+
+
+def test_build_search_plan_osm_diagonal_roads_remain_one_cluster():
+    road_cells = {(0, 0), (1, 1), (2, 2)}
+    road_labels = {
+        (0, 0): ["highway:310:residential"],
+        (1, 1): ["highway:310:residential"],
+        (2, 2): ["highway:310:residential"],
+    }
+    grid, viable = _make_grid(
+        terrain_id="diag-road",
+        rows=3,
+        cols=3,
+        road_cells=road_cells,
+        road_labels=road_labels,
+    )
+
+    plan = build_search_plan(
+        grid,
+        drone_positions=[(0, 0)],
+        viable_grid_positions=viable,
+        num_drones=1,
+    )
+
+    jumps = [
+        max(abs(current[0] - nxt[0]), abs(current[1] - nxt[1]))
+        for current, nxt in zip(plan.cell_paths[0], plan.cell_paths[0][1:])
+    ]
+
+    assert plan.fallback_mode == "object_search"
+    assert set(plan.cell_paths[0]) == road_cells
+    assert max(jumps, default=0) <= 1
+
+
+def test_build_search_plan_fallback_checkerboard_split_rectangular_grid():
+    grid, viable = _make_grid(terrain_id="fallback-plan", rows=3, cols=6)
+
+    plan = build_search_plan(
+        grid,
+        drone_positions=[(0, 0), (2, 5)],
         viable_grid_positions=viable,
         num_drones=2,
     )
 
     assert plan.fallback_mode == "cell_search"
     assert {cell for cells in plan.cell_paths.values() for cell in cells} == {
-        (0, 0),
-        (0, 1),
-        (1, 0),
-        (1, 1),
+        (row, col)
+        for row in range(3)
+        for col in range(6)
+        if (row + col) % 2 == 0
     }
+    assert all(cell[1] <= 2 for cell in plan.cell_paths[0])
+    assert all(cell[1] >= 3 for cell in plan.cell_paths[1])
+
+
+def test_build_search_plan_fallback_rescues_empty_band_after_checkerboard_filter():
+    grid, viable = _make_grid(terrain_id="fallback-thin", rows=1, cols=2)
+
+    plan = build_search_plan(
+        grid,
+        drone_positions=[(0, 0), (0, 1)],
+        viable_grid_positions=viable,
+        num_drones=2,
+    )
+
+    assert plan.fallback_mode == "cell_search"
+    assert plan.cell_paths[0] == [(0, 0)]
+    assert plan.cell_paths[1] == [(0, 1)]
+
+
+def test_build_search_plan_water_clusters_follow_road_neighborhoods():
+    road_cells = {(1, 0), (1, 1), (1, 2)}
+    building_cells = {(2, 1)}
+    water_cells = {(0, 5), (1, 5)}
+    road_labels = {
+        (1, 0): ["highway:410:primary"],
+        (1, 1): ["highway:410:primary"],
+        (1, 2): ["highway:410:primary"],
+    }
+    building_labels = {(2, 1): ["building:411"]}
+    water_labels = {
+        (0, 5): ["water:510"],
+        (1, 5): ["water:510"],
+    }
+    grid, viable = _make_grid(
+        terrain_id="water-after-road",
+        rows=4,
+        cols=6,
+        road_cells=road_cells,
+        building_cells=building_cells,
+        water_cells=water_cells,
+        road_labels=road_labels,
+        building_labels=building_labels,
+        water_labels=water_labels,
+    )
+
+    plan = build_search_plan(
+        grid,
+        drone_positions=[(1, 0)],
+        viable_grid_positions=viable,
+        num_drones=1,
+    )
+
+    route = plan.cell_paths[0]
+    water_indexes = [index for index, cell in enumerate(route) if cell in water_cells]
+    non_water_indexes = [index for index, cell in enumerate(route) if cell in (road_cells | building_cells)]
+
+    assert plan.fallback_mode == "object_search"
+    assert water_indexes
+    assert max(non_water_indexes) < min(water_indexes)
+
+
+def test_build_search_plan_multi_drone_keeps_semantic_clusters_single_owner():
+    cluster_a_road = {(1, 0), (1, 1), (1, 2)}
+    cluster_a_buildings = {(2, 1)}
+    cluster_b_road = {(1, 6), (1, 7), (1, 8)}
+    cluster_b_buildings = {(2, 7)}
+    road_cells = cluster_a_road | cluster_b_road
+    building_cells = cluster_a_buildings | cluster_b_buildings
+    road_labels = {
+        (1, 0): ["highway:601:residential"],
+        (1, 1): ["highway:601:residential"],
+        (1, 2): ["highway:601:residential"],
+        (1, 6): ["highway:701:residential"],
+        (1, 7): ["highway:701:residential"],
+        (1, 8): ["highway:701:residential"],
+    }
+    building_labels = {
+        (2, 1): ["building:602"],
+        (2, 7): ["building:702"],
+    }
+    grid, viable = _make_grid(
+        terrain_id="cluster-owner",
+        rows=4,
+        cols=10,
+        road_cells=road_cells,
+        building_cells=building_cells,
+        road_labels=road_labels,
+        building_labels=building_labels,
+    )
+
+    plan = build_search_plan(
+        grid,
+        drone_positions=[(1, 0), (1, 8)],
+        viable_grid_positions=viable,
+        num_drones=2,
+    )
+
+    route_sets = {drone_id: set(cells) for drone_id, cells in plan.cell_paths.items()}
+    cluster_a = cluster_a_road | cluster_a_buildings
+    cluster_b = cluster_b_road | cluster_b_buildings
+
+    assert any(cluster_a <= route for route in route_sets.values())
+    assert any(cluster_b <= route for route in route_sets.values())
+    assert sum(1 for route in route_sets.values() if route & cluster_a) == 1
+    assert sum(1 for route in route_sets.values() if route & cluster_b) == 1
+
+
+def test_build_grid_from_tile_counts_only_marks_nonzero_tiles_as_viable():
+    terrain_id = "tile-counts"
+    tile_rows = [
+        {
+            "x_idx": 0,
+            "y_idx": 0,
+            "tile_polygon": box(0.0, 0.0, 1.0, 1.0),
+            "counts": {"building": 1, "water": 0, "highway": 0, "pedestrian_path": 0},
+            "total_count": 1,
+        },
+        {
+            "x_idx": 1,
+            "y_idx": 0,
+            "tile_polygon": box(1.0, 0.0, 2.0, 1.0),
+            "counts": {"building": 0, "water": 0, "highway": 0, "pedestrian_path": 0},
+            "total_count": 0,
+        },
+    ]
+
+    grid, viable = _build_grid_from_tile_counts(
+        tile_rows,
+        search_tags={"building": True, "water": True, "highway": True},
+        terrain_id=terrain_id,
+    )
+
+    assert grid is not None
+    assert viable == [(0, 0)]
+    assert grid[0][0].total_count == 1
+    assert grid[0][1].total_count == 0
+
+
+def test_build_feature_records_normalizes_highway_types_and_parses_geometry():
+    rows = [
+        SimpleNamespace(
+            osm_id=7,
+            feature_type="pedestrian_path",
+            tag_value="footway",
+            geom_wkt_4326="LINESTRING(0 0, 1 1)",
+        )
+    ]
+
+    features = _build_feature_records(rows)
+
+    assert features == [
+        {
+            "osm_id": 7,
+            "feature_type": "highway",
+            "tag_value": "footway",
+            "geometry": LineString([(0.0, 0.0), (1.0, 1.0)]),
+        }
+    ]
+
+
+def test_enrich_grid_with_feature_membership_uses_stable_osm_tokens():
+    tile_rows = [
+        {
+            "x_idx": 0,
+            "y_idx": 0,
+            "tile_polygon": box(0.0, 0.0, 1.0, 1.0),
+            "counts": {"building": 1, "water": 0, "highway": 1, "pedestrian_path": 0},
+            "total_count": 2,
+        },
+        {
+            "x_idx": 1,
+            "y_idx": 0,
+            "tile_polygon": box(1.0, 0.0, 2.0, 1.0),
+            "counts": {"building": 0, "water": 0, "highway": 1, "pedestrian_path": 0},
+            "total_count": 1,
+        },
+    ]
+    grid, _ = _build_grid_from_tile_counts(
+        tile_rows,
+        search_tags={"building": True, "water": True, "highway": True},
+        terrain_id="stable-membership",
+    )
+    assert grid is not None
+
+    features = [
+        {
+            "osm_id": 11,
+            "feature_type": "building",
+            "tag_value": "house",
+            "geometry": Polygon([(0.1, 0.1), (0.8, 0.1), (0.8, 0.8), (0.1, 0.8)]),
+        },
+        {
+            "osm_id": 22,
+            "feature_type": "highway",
+            "tag_value": "residential",
+            "geometry": LineString([(0.0, 0.5), (2.0, 0.5)]),
+        },
+    ]
+
+    _enrich_grid_with_feature_membership(
+        grid,
+        feature_rows=features,
+        search_tags={"building": True, "water": True, "highway": True},
+    )
+
+    assert grid[0][0].contains["building"] == ["building:11"]
+    assert grid[0][0].contains["highway"] == ["highway:22:residential"]
+    assert grid[0][1].contains["highway"] == ["highway:22:residential"]
