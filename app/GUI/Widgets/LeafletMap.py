@@ -13,6 +13,11 @@ from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
 from PyQt6.QtCore import QObject, QFile, QIODevice, pyqtSlot, pyqtSignal, QUrl, Qt
 
+EC2_TILE_URL = os.environ.get(
+            "TILE_SERVER_URL",
+            "http://18.220.206.190:8080/tile/{z}/{x}/{y}.png"
+)
+
 
 class _MapBridge(QObject):
     """Python object exposed to JavaScript via QWebChannel."""
@@ -359,7 +364,8 @@ class LeafletMap(QWidget):
         # Check internet connectivity for tile server selection
         from Utils.check_internet import has_internet
         if has_internet():
-            tile_url = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            tile_url = EC2_TILE_URL
+            print(f"Internet detected — using tile server at {tile_url}")
         else:
             tile_url = "http://localhost:8080/tile/{z}/{x}/{y}.png"
             print("No internet detected — using offline tile server at localhost:8080")
