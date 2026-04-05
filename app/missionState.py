@@ -5,7 +5,7 @@ import os
 import sys
 import random
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Add vision-edge submodule to Python path (hyphenated dir name can't be imported directly)
 _vision_edge_src = os.path.join(os.path.dirname(__file__), "vision-edge", "src")
@@ -23,6 +23,8 @@ from Agents.Agent_D.Visualizer.visualization import plot_search_area, plot_advan
 from Agents.Agent_D.Visualizer.visualization import Interactive_Visualization
 from LangGraph import langChainMain
 import concurrent.futures
+import subprocess
+import time as _time
 from Utils import coordinate_estimation
 import cv2
 from models.jobs.job_queue import JobQueue
@@ -242,6 +244,57 @@ class missionState:
         self.drone_search_destinations = {}
         self.agent_d_last_result = None
 
+        # Start Agent B microservice as a background process
+        self._agent_b_proc = self._start_agent_b()
+
+        # Poll Agent B for new detections and forward to Agent D for costmap updates
+        self._detection_poll_stop = threading.Event()
+        self._detection_poll_thread = threading.Thread(
+            target=self._poll_agent_b_detections, daemon=True
+        )
+        self._detection_poll_thread.start()
+
+        # Health-check thread for service status indicators
+        self._health_poll_thread = threading.Thread(
+            target=self._poll_service_health, daemon=True
+        )
+        self._health_poll_thread.start()
+
+    def _poll_service_health(self):
+        """Background thread: pings Agent B and OSM DB, updates GUI status dots."""
+        import psycopg2
+        OSM_HOST = "18.220.206.190"
+        OSM_PORT = 5432
+        AGENT_B_HEALTH = "http://localhost:8081/health"
+        POLL_INTERVAL = 10
+
+        _time.sleep(3)  # Wait for GUI to initialize
+
+        while not self._detection_poll_stop.is_set():
+            # Check Agent B
+            agent_b_up = False
+            try:
+                resp = requests.get(AGENT_B_HEALTH, timeout=2)
+                agent_b_up = resp.status_code == 200
+            except Exception:
+                pass
+
+            # Check OSM PostGIS
+            osm_up = False
+            try:
+                conn = psycopg2.connect(
+                    host=OSM_HOST, port=OSM_PORT,
+                    dbname="gis", user="renderer", password="renderer",
+                    connect_timeout=3,
+                )
+                conn.close()
+                osm_up = True
+            except Exception:
+                pass
+
+            self.gui.updateServiceStatus(agent_b_up, osm_up)
+            self._detection_poll_stop.wait(POLL_INTERVAL)
+
     @staticmethod
     def toggle_database(action):
         """Sends a start/stop command to the VITALS OSM EC2 instance."""
@@ -266,7 +319,192 @@ class missionState:
         except requests.exceptions.RequestException as e:
             print(f"[-] Connection failed: {e}")
 
-    
+    def _start_agent_b(self):
+        """Launch Agent B (FastAPI + TCP listener) as a background subprocess."""
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        agents_dir = os.path.join(app_dir, "Agents")
+        schema_root = os.path.join(app_dir, "schemas")
+
+        env = os.environ.copy()
+        env["VITALS_SCHEMA_ROOT"] = schema_root
+
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "uvicorn",
+                 "agent_b.agent_b_service:app",
+                 "--host", "0.0.0.0", "--port", "8081",
+                 "--log-level", "warning"],
+                cwd=agents_dir,
+                env=env,
+            )
+            print(f"[+] Agent B started (PID {proc.pid}) — HTTP :8081, TCP :9000")
+            return proc
+        except Exception as e:
+            print(f"[-] Failed to start Agent B: {e}")
+            return None
+
+    def _stop_agent_b(self):
+        """Terminate Agent B subprocess."""
+        if self._agent_b_proc and self._agent_b_proc.poll() is None:
+            self._agent_b_proc.terminate()
+            try:
+                self._agent_b_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._agent_b_proc.kill()
+            print("[+] Agent B stopped")
+
+    def _resolve_detecting_drone(self, det: dict):
+        """Find the Drone object that produced this detection based on uav_id/instance."""
+        uav_id = (det.get("payload") or {}).get("uav_id") or ""
+        instance = (det.get("source") or {}).get("instance") or ""
+        drone_hint = uav_id or instance
+        for drone in self.drones:
+            if str(drone.drone_id) in drone_hint:
+                return drone
+        # Fallback: return first drone
+        return self.drones[0] if self.drones else None
+
+    def _resolve_drone_geo(self, det: dict) -> dict:
+        """Look up the real GPS position of the drone that made this detection."""
+        # Identify which drone from the MCP message
+        uav_id = (det.get("payload") or {}).get("uav_id") or ""
+        instance = (det.get("source") or {}).get("instance") or ""
+        drone_hint = uav_id or instance  # e.g. "UAV_1" or "drone-1"
+
+        for drone in self.drones:
+            drone_id_str = str(drone.drone_id)
+            if drone_id_str in drone_hint and drone.latitude and drone.longitude:
+                return {
+                    "lat": drone.latitude / 1e7,
+                    "lon": drone.longitude / 1e7,
+                }
+        # Fallback: return first drone with a valid fix
+        for drone in self.drones:
+            if drone.latitude and drone.longitude:
+                return {
+                    "lat": drone.latitude / 1e7,
+                    "lon": drone.longitude / 1e7,
+                }
+        return {}
+
+    def _poll_agent_b_detections(self):
+        """Background thread: polls Agent B for new MCP.Detection messages,
+        corrects geo with real drone telemetry, updates Agent B's stored record,
+        and forwards to Agent D for costmap updates."""
+        AGENT_B_BASE = "http://localhost:8081"
+        POLL_INTERVAL = 2
+        last_ts = ""
+        seen_event_ids = set()
+
+        _time.sleep(5)  # Wait for Agent B to start
+
+        while not self._detection_poll_stop.is_set():
+            try:
+                resp = requests.get(
+                    f"{AGENT_B_BASE}/detections/recent",
+                    params={"since": last_ts}, timeout=3,
+                )
+                if resp.status_code != 200:
+                    self._detection_poll_stop.wait(POLL_INTERVAL)
+                    continue
+
+                all_messages = resp.json().get("detections", [])
+
+                # Separate captions from detections and index captions by corr_id
+                captions_by_corr = {}
+                for msg in all_messages:
+                    if msg.get("type") == "MCP.Caption":
+                        cid = msg.get("corr_id")
+                        if cid:
+                            captions_by_corr[cid] = (msg.get("payload") or {}).get("caption", "")
+
+                for det in all_messages:
+                    if det.get("type") != "MCP.Detection":
+                        continue
+                    event_id = det.get("event_id")
+                    if not event_id or event_id in seen_event_ids:
+                        continue
+                    seen_event_ids.add(event_id)
+
+                    # Correct geo using live drone telemetry
+                    real_geo = self._resolve_drone_geo(det)
+                    if real_geo:
+                        try:
+                            requests.post(
+                                f"{AGENT_B_BASE}/detections/update-geo",
+                                json={"event_id": event_id, "geo": real_geo},
+                                timeout=3,
+                            )
+                        except Exception:
+                            pass
+                        det["geo"] = real_geo
+
+                    if not det.get("corr_id"):
+                        det["corr_id"] = self.missionID
+
+                    geo = det.get("geo") or {}
+                    lat = geo.get("lat")
+                    lon = geo.get("lon")
+                    label = (det.get("payload") or {}).get("label", "unknown")
+
+                    # Build description: prefer VLM caption, fall back to detection text
+                    caption = captions_by_corr.get(det.get("corr_id", ""), "")
+                    description = caption or det.get("text", f"{label} detected by vision-edge")
+
+                    # Forward to Agent D for costmap update
+                    try:
+                        result = self.agent_d.ingest_message(det)
+                        self.agent_d_last_result = result
+                        self._sync_agent_d_session()
+                        print(f"[Agent D] Detection registered: {label} at ({lat}, {lon})")
+                    except Exception:
+                        pass  # Session not ready or detection outside grid
+
+                    # Create POI on map if we have valid coordinates
+                    if lat is not None and lon is not None:
+                        # Check for nearby existing POI (within 40m)
+                        duplicate = False
+                        for poi in self.pois:
+                            if coordinate_estimation.calculate_distance_between_points(
+                                lat, lon, poi.lat, poi.lon
+                            ) < 40:
+                                poi.positive_flags += 1
+                                duplicate = True
+                                break
+                        if not duplicate:
+                            poi_id = self.gui.addDetectedPOI(lat, lon, f"Detected: {label}", description)
+                            if poi_id is not None:
+                                # Identify and pause the detecting drone
+                                detecting_drone = self._resolve_detecting_drone(det)
+                                if detecting_drone:
+                                    # Pause current search job and circle the POI (LOITER_TURNS)
+                                    if detecting_drone.active_job:
+                                        detecting_drone.pauseJob()
+                                    orbit_waypoint = [(lat, lon, int(detecting_drone.operatingAltitude), 2)]
+                                    orbit_job = Job(f"Circling POI {poi_id}", "pending", orbit_waypoint, self, 6)
+                                    detecting_drone.addJob(orbit_job)
+
+                                # Notify user via chat and wait for response
+                                drone_label = f"Drone {detecting_drone.drone_id}" if detecting_drone else "A drone"
+                                drone_id_str = str(detecting_drone.drone_id) if detecting_drone else "?"
+                                self.gui.create_system_chat_message(
+                                    f"{label.capitalize()} detected at ({lat:.6f}, {lon:.6f}). "
+                                    f"{drone_label} is circling the POI. "
+                                    f"Say 'send drone {drone_id_str} to investigate poi {poi_id}' "
+                                    f"or 'continue drone {drone_id_str}'."
+                                )
+
+                    ts = det.get("ts", "")
+                    if ts > last_ts:
+                        last_ts = ts
+
+            except requests.exceptions.ConnectionError:
+                pass  # Agent B not up yet
+            except Exception as exc:
+                print(f"[Detection poll] Error: {exc}")
+
+            self._detection_poll_stop.wait(POLL_INTERVAL)
+
     def reset_for_new_mission(self):
         """Reset missionState for a new mission while preserving MAVLink connection."""
         self.pois = []
@@ -310,7 +548,7 @@ class missionState:
         return {
             "schema": "acp.v0.2",
             "event_id": f"search-{self.missionID}",
-            "ts": datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.now(timezone.utc).isoformat(),
             "type": "ACP.Intent",
             "corr_id": self.missionID,
             "idempotency_key": f"search-area-{self.missionID}",
@@ -333,7 +571,7 @@ class missionState:
         return {
             "schema": "acp.v0.2",
             "event_id": f"poi-{self.missionID}-{suffix}",
-            "ts": datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.now(timezone.utc).isoformat(),
             "type": "ACP.Intent",
             "corr_id": self.missionID,
             "idempotency_key": f"gui-poi-{self.missionID}-{suffix}",
@@ -351,7 +589,7 @@ class missionState:
         return {
             "schema": "mcp.v0.2",
             "event_id": f"det-{self.missionID}-{drone_id}-{int(abs(lat) * 1000000)}",
-            "ts": datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.now(timezone.utc).isoformat(),
             "type": "MCP.Detection",
             "corr_id": self.missionID,
             "idempotency_key": f"vision-detection-{self.missionID}-{drone_id}-{int(abs(lat) * 1000000)}",
@@ -606,7 +844,11 @@ class missionState:
     def resume_drone_mission(self, drone_id):
         drone = next((d for d in self.drones if d.drone_id == int(drone_id)), None)
         if drone is not None:
-            drone.setDroneAvailable()
+            # Cancel the circling job (if active) and pick up the next queued job
+            if drone.active_job and drone.active_job.job_type.startswith("Circling POI"):
+                drone.setJobComplete()
+            elif not drone.available:
+                drone.setDroneAvailable()
 
     def get_mission_report_data(self):
         """Return planned and actual paths for each drone."""
@@ -813,4 +1055,6 @@ if __name__ == "__main__":
     try:
         gui.run()
     finally:
+        missionState._detection_poll_stop.set()
+        missionState._stop_agent_b()
         missionState.toggle_database('stop')

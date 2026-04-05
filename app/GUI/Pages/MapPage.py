@@ -76,6 +76,26 @@ class MapPage(QWidget):
 
         sidebar_layout.addLayout(title_row)
 
+        # ── Service status indicators ─────────────────────────
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(12)
+
+        dot_style = (
+            "font-size: 10px; border: none; background: transparent; color: #aaa;"
+        )
+
+        self._agent_b_dot = QLabel("\u2B24 Agent B")
+        self._agent_b_dot.setStyleSheet(dot_style)
+        status_row.addWidget(self._agent_b_dot)
+
+        self._osm_dot = QLabel("\u2B24 OSM DB")
+        self._osm_dot.setStyleSheet(dot_style)
+        status_row.addWidget(self._osm_dot)
+
+        status_row.addStretch()
+        sidebar_layout.addLayout(status_row)
+
         # Connect to Mavlink
         self.connect_button = QPushButton("Connect to Mavlink")
         self.connect_button.clicked.connect(self.gui_ref.call_mavlink_connection)
@@ -439,6 +459,15 @@ class MapPage(QWidget):
     def move_marker(self):
         if self.drones:
             self.drones[0].move(0.0001, 0.0001)
+
+    # ── Service status ────────────────────────────────────────
+
+    def update_service_status(self, agent_b_up: bool, osm_up: bool):
+        """Update the service status dot indicators. Must be called on the main thread."""
+        green = "font-size: 10px; border: none; background: transparent; color: #4caf50;"
+        red = "font-size: 10px; border: none; background: transparent; color: #f44336;"
+        self._agent_b_dot.setStyleSheet(green if agent_b_up else red)
+        self._osm_dot.setStyleSheet(green if osm_up else red)
 
     # ── POI management ────────────────────────────────────────
 
