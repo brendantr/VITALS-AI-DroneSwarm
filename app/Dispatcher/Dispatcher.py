@@ -165,7 +165,6 @@ class Dispatcher:
                             drone_id, msg.roll, msg.pitch, msg.yaw
                         )
                     elif msg_type == "MISSION_REQUEST":
-                            print(f"Received mission request {msg.seq} from drone {drone_id}")
                             await self.handle_mission_request(drone_id, msg.seq)
 
                     elif msg_type == "MISSION_ACK":
@@ -173,27 +172,24 @@ class Dispatcher:
                             await self.handle_mission_ack(drone_id, msg.type)
 
                     elif msg_type == "COMMAND_ACK":
-                            print(f"Command acknowledgment received for drone {drone_id}: {msg.command} - {msg.result}")
-                            # Decode specific commands and results
-                            command_names = {
-                                512: "SET_MODE",
-                                521: "ARM_DISARM"
-                            }
-                            result_codes = {
-                                0: "ACCEPTED",
-                                1: "TEMPORARILY_REJECTED", 
-                                2: "DENIED",
-                                3: "UNSUPPORTED",
-                                4: "FAILED",
-                                5: "IN_PROGRESS"
-                            }
-                            cmd_name = command_names.get(msg.command, f"CMD_{msg.command}")
-                            result_name = result_codes.get(msg.result, f"RESULT_{msg.result}")
-                            print(f"  → {cmd_name}: {result_name}")
-                            
-                            # Decode arm command rejections
-                            if msg.command == mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM and msg.result != 0:
-                                print(f"ARM COMMAND FAILED: Check drone mode, safety switches, and pre-arm conditions in QGroundControl")
+                            # Only log failures — routine ACKs are noise
+                            if msg.result != 0:
+                                command_names = {
+                                    512: "SET_MODE",
+                                    521: "ARM_DISARM"
+                                }
+                                result_codes = {
+                                    1: "TEMPORARILY_REJECTED",
+                                    2: "DENIED",
+                                    3: "UNSUPPORTED",
+                                    4: "FAILED",
+                                    5: "IN_PROGRESS"
+                                }
+                                cmd_name = command_names.get(msg.command, f"CMD_{msg.command}")
+                                result_name = result_codes.get(msg.result, f"RESULT_{msg.result}")
+                                print(f"Command FAILED for drone {drone_id}: {cmd_name} → {result_name}")
+                                if msg.command == mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM:
+                                    print(f"ARM COMMAND FAILED: Check drone mode, safety switches, and pre-arm conditions in QGroundControl")
                     elif msg_type == "STATUSTEXT":
                             # Print important status messages (like pre-arm check failures)
                             text = msg.text if isinstance(msg.text, str) else msg.text.decode('utf-8', errors='ignore')
@@ -273,7 +269,6 @@ class Dispatcher:
 
     async def stop_current_mission(self, drone_id):
         """Stop the current mission and set the drone to GUIDED mode."""
-        print(f"Stopping current mission for drone {drone_id}...")
 
         # Switch to GUIDED mode (manual control to prevent mission resuming)
         self.master.mav.set_mode_send(
@@ -287,7 +282,6 @@ class Dispatcher:
             return False
 
         # Clear current mission
-        print(f"Clearing current mission for drone {drone_id}...")
         self.master.mav.mission_clear_all_send(drone_id, 0)
         self.unhandled_clears.append(drone_id)
 
@@ -299,7 +293,6 @@ class Dispatcher:
     async def upload_mission(self, drone_id, waypoints):
         """Initiate mission upload using the correct MAVLink protocol."""
         print(f"Uploading mission to drone {drone_id} with {len(waypoints)} waypoints...")
-        print(f"Waypoints: {waypoints}")
         #append home waypoint to the mission
         drone = self.missionState.get_drone(drone_id)
         if not drone:
@@ -335,11 +328,7 @@ class Dispatcher:
             "waiting_for_request": True
         }
         self.uploading_missions[drone_id]["waypoints"] = waypoints.copy()
-        print( f"uploading waypoints: {self.uploading_missions[drone_id]['waypoints']}")
-
-        # Send mission count
         mission_count = len(waypoints)
-        print(f"Sending MISSION_COUNT for {mission_count} waypoints to drone {drone_id}")
         
         self.master.mav.mission_count_send(drone_id, 0, mission_count)
         await asyncio.sleep(2)  # Allow drone time to process
@@ -351,7 +340,6 @@ class Dispatcher:
     async def handle_mission_request(self, drone_id, seq):
         """Respond to mission requests from the drone."""
         mission = self.uploading_missions.get(drone_id)
-        print(f"Received mission request {seq} from drone {drone_id}")
 
         if mission and seq < len(mission["waypoints"]):
             lat, lon, alt, type = mission["waypoints"][seq]
@@ -370,51 +358,34 @@ class Dispatcher:
         y = int(float(lon) * 1e7)
         z = float(alt)
 
-        print(f"Sending waypoint {index} to drone {drone_id}: {lat}, {lon}, {alt}")
         if waypoint_type == 0: # Normal Waypoint
             self.master.mav.mission_item_int_send(
-                drone_id,  # Target drone
-                0,  # Target component
-                index,  # Waypoint index
+                drone_id, 0, index,
                 mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
                 mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
-                0,  # Current waypoint flag
-                1,  # Auto-continue
-                0, 2.0, 0, 0,  # Empty params
+                0, 1, 0, 2.0, 0, 0,
                 x, y, z
             )
-            print(f"Waypoint {index} sent to drone {drone_id}: {lat}, {lon}, {alt}")
         elif waypoint_type == 1: # Takeoff Command
             self.master.mav.mission_item_int_send(
-                drone_id,  # Target drone
-                0,  # Target component
-                index,  # Waypoint index
+                drone_id, 0, index,
                 mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
                 mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-                0,  # Current waypoint flag
-                1,  # Auto-continue
-                0,  # pitch
-                0, 0,  # Empty params
-                0, #yaw
+                0, 1, 0, 0, 0, 0,
                 x, y, z
             )
-            print(f"Waypoint {index} sent to drone {drone_id}: {lat}, {lon}, {alt}")
         elif waypoint_type == 2: # Loiter turns Command
             self.master.mav.mission_item_int_send(
-                drone_id,  # Target drone
-                0,  # Target component
-                index,  # Waypoint index
+                drone_id, 0, index,
                 mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
                 mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS,
-                0,  # Current waypoint flag
-                1,  # Auto-continue
+                0, 1,
                 3,  # Number of turns
                 0,  # Heading
-                12, #Radius (m)
-                0,  #NA for copters
+                12, # Radius (m)
+                0,
                 x, y, z
             )
-            print(f"Waypoint {index} sent to drone {drone_id}: {lat}, {lon}, {alt}")
 
     async def handle_mission_ack(self, drone_id, ack_type):
         """Handle final mission acknowledgment."""
@@ -430,10 +401,7 @@ class Dispatcher:
 
     def clear_mission(self, drone_id):
         self.master.target_system = drone_id
-        #self.master.waypoint_clear_all_send()
 
-
-    print(f"Cannot request mission list: MAVLink is not connected!")
     def request_mission_list(self, drone_id):
         """Request the mission list from the drone."""
         if not self.master:
@@ -445,7 +413,6 @@ class Dispatcher:
 
     def arm_drone(self, drone_id):
         print(f"Arming drone {drone_id}")
-        print(f"target_component: {self.master.target_component}")
         self.master.target_system = drone_id
         self.master.set_mode(216)
         self.master.arducopter_arm()
@@ -511,7 +478,7 @@ class Dispatcher:
             self.waiting_for_takeoff.remove((drone_id, target_alt))
             await self.start_mission(drone_id)
         else:
-            print(f"Drone {drone_id} is still climbing. Current altitude: {rel_alt}m, Target altitude: {target_alt}m.")
+            pass  # Still climbing — no need to log every telemetry tick
 
     
     def set_max_velocity(self, drone_id, velocity_ms):
@@ -533,8 +500,6 @@ class Dispatcher:
             float(velocity_ms * 100),  # Convert m/s to cm/s
             mavutil.mavlink.MAV_PARAM_TYPE_REAL32
         )
-        print(f"Set WPNAV_SPEED to {velocity_ms * 100} cm/s for drone {drone_id}")
-
         # Also send DO_CHANGE_SPEED for immediate effect if airborne
         self.master.mav.command_long_send(
             drone_id,
@@ -546,7 +511,7 @@ class Dispatcher:
             -1,  # Throttle (-1 = no change)
             0, 0, 0, 0
         )
-        print(f"Sent DO_CHANGE_SPEED {velocity_ms} m/s to drone {drone_id}")
+        print(f"Set max velocity to {velocity_ms} m/s for drone {drone_id}")
 
     def return_to_launch(self, drone_id):
         """Switch drone to RTL mode and return to launch, or land immediately if needed."""
@@ -554,14 +519,12 @@ class Dispatcher:
             print(f"Cannot send RTL command: MAVLink is not connected!")
             return
 
-        print(f"Sending RTL command to drone {drone_id}...")
-        # Switch to RTL mode (mode 6)
         self.master.mav.set_mode_send(
             drone_id,
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             6  # RTL mode
         )
-        print(f"Switched drone {drone_id} to RTL mode.")
+        print(f"Drone {drone_id} returning to launch.")
 
     def land_drone(self, drone_id):
         """Land the drone immediately at current location."""
@@ -569,14 +532,12 @@ class Dispatcher:
             print(f"Cannot send LAND command: MAVLink is not connected!")
             return
 
-        print(f"Sending LAND command to drone {drone_id}...")
-        # Switch to LAND mode (mode 9)
         self.master.mav.set_mode_send(
             drone_id,
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             9  # LAND mode
         )
-        print(f"Drone {drone_id} is landing.")
+        print(f"Drone {drone_id} landing.")
     
 
     # ── Utilities ───────────────────────────────────────────────────────
@@ -602,7 +563,6 @@ class Dispatcher:
         Checks the custom_mode stored by receive_packets() from heartbeats
         rather than reading messages directly (which would race with receive_packets).
         """
-        print(f"Waiting for drone {drone_id} to switch to {target_mode} mode...")
         start_time = time.time()
         mode_mapping = {
             "GUIDED": 4,

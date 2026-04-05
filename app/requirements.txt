@@ -32,3 +32,12 @@ sqlalchemy
 geoalchemy2
 psycopg2-binary==2.9.11
 pyproj
+
+# Agent B (Storage & Retrieval)
+fastapi
+uvicorn
+chromadb
+sentence-transformers
+jsonschema
+pydantic>=2.0
+pyarrow

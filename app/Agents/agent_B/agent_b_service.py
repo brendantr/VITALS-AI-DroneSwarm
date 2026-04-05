@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import collections
 import json
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Literal
 
+import logging
+
+import re
+
 import chromadb
 import torch
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from jsonschema import ValidationError
 from pydantic import BaseModel, Field, ConfigDict
@@ -20,6 +27,9 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from agents_common.schema_validator import SchemaValidator
 from agent_b.storage.parquet_events import ParquetEventsWriter, ParquetEventsConfig
 from agent_b.storage.ingest_dedupe import IngestDedupeStore
+from agent_b.tcp_listener import TCPIngestListener
+
+log = logging.getLogger("agent_b.service")
 
 
 # -------------------------
@@ -57,7 +67,6 @@ MAX_RERANK_K = int(os.getenv("VITALS_MAX_RERANK_K", "50"))
 # -------------------------
 # App + singletons
 # -------------------------
-app = FastAPI(title="VITALS Agent B (Retrieval & Memory)")
 
 validator = SchemaValidator(schema_root=SCHEMA_ROOT)
 
@@ -80,6 +89,41 @@ try:
     )
 except Exception:
     reranker = None
+
+
+# -------------------------
+# TCP listener (receives NDJSON from vision-edge on Jetson)
+# -------------------------
+# Initialized here; wired to ingest_messages() below via lifespan.
+tcp_listener: Optional[TCPIngestListener] = None
+
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    global tcp_listener
+    tcp_listener = TCPIngestListener(ingest_fn=ingest_messages)
+    await tcp_listener.start()
+    yield
+    await tcp_listener.stop()
+
+
+app = FastAPI(title="VITALS Agent B (Retrieval & Memory)", lifespan=_lifespan)
+
+
+# -------------------------
+# Recent detections buffer — allows missionState to poll for new
+# MCP.Detection messages and forward them to Agent D in real time.
+# -------------------------
+_recent_detections: collections.deque = collections.deque(maxlen=500)
+_detections_lock = threading.Lock()
+
+
+def _buffer_detections(messages: List[Dict[str, Any]]) -> None:
+    """Store MCP.Detection and MCP.Caption messages in a bounded ring buffer."""
+    for msg in messages:
+        if msg.get("type") in ("MCP.Detection", "MCP.Caption"):
+            with _detections_lock:
+                _recent_detections.append(msg)
 
 
 def iso_now() -> str:
@@ -207,6 +251,7 @@ def _debug_check_meta(metas: List[Dict[str, Any]]) -> None:
 
 @app.get("/health")
 def health():
+    from agent_b.tcp_listener import TCP_ENABLED, TCP_HOST, TCP_PORT
     return {
         "ok": True,
         "model": EMBED_MODEL,
@@ -217,13 +262,28 @@ def health():
         "parquet_dir": str(PARQUET_BASE_DIR),
         "ingest_dedupe_db": str(INGEST_DEDUPE_DB),
         "cuda_available": torch.cuda.is_available(),
+        "tcp_listener": {
+            "enabled": TCP_ENABLED,
+            "host": TCP_HOST,
+            "port": TCP_PORT,
+            "active_connections": tcp_listener._active_connections if tcp_listener else 0,
+        },
     }
 
 
-@app.post("/ingest")
-def ingest(req: IngestRequest):
+def ingest_messages(
+    messages: List[Dict[str, Any]],
+    embed: bool = True,
+) -> Dict[str, Any]:
+    """
+    Core ingest pipeline shared by the HTTP endpoint and the TCP listener.
+
+    Validates, deduplicates, writes to Parquet, and optionally embeds + stores
+    in ChromaDB. Returns a stats dict. Raises on Parquet/Chroma failures.
+    """
     # 1) Validate all messages
-    for i, msg in enumerate(req.messages):
+    errors: List[Dict[str, Any]] = []
+    for i, msg in enumerate(messages):
         try:
             validator.validate(msg)
         except (ValidationError, ValueError) as e:
@@ -233,14 +293,17 @@ def ingest(req: IngestRequest):
                 "schema": msg.get("schema"),
                 "type": msg.get("type"),
                 "event_id": msg.get("event_id"),
-                "idempotency_key": msg.get("idempotency_key"),
             }
             if isinstance(e, ValidationError):
                 detail["path"] = [str(x) for x in e.path]
-                detail["schema_path"] = [str(x) for x in e.schema_path]
-            raise HTTPException(status_code=422, detail=detail)
+            errors.append(detail)
 
-    validated_count = len(req.messages)
+    # Drop invalid messages (log but don't crash — TCP has no HTTP 422 to return).
+    valid_msgs = [m for i, m in enumerate(messages) if not any(e["index"] == i for e in errors)]
+    for err in errors:
+        log.warning("Validation failed for message %d: %s", err["index"], err["error"])
+
+    validated_count = len(valid_msgs)
 
     # 2) Dedupe BEFORE side-effects (Parquet/Chroma)
     deduped: List[Dict[str, Any]] = []
@@ -248,7 +311,7 @@ def ingest(req: IngestRequest):
     dup_idem = 0
     dup_msgid = 0
 
-    for msg in req.messages:
+    for msg in valid_msgs:
         schema = msg.get("schema") or "unknown"
         corr_id = msg.get("corr_id")
         idem = msg.get("idempotency_key")
@@ -282,6 +345,7 @@ def ingest(req: IngestRequest):
             "skipped_duplicates_msgid": dup_msgid,
             "parquet_written": 0,
             "vector_stored": 0,
+            "validation_errors": len(errors),
         }
 
     # 3) Compute canonical texts ONCE (NO message mutation)
@@ -290,14 +354,11 @@ def ingest(req: IngestRequest):
     # 4) Mission ID
     mission_id = os.getenv("VITALS_MISSION_ID", "mission_alpha")
 
-    # 5) Write to Parquet first (durable log) — only deduped messages, with text overrides
-    try:
-        parquet_written = parquet_writer.append_messages(deduped, mission_id=mission_id, texts=texts)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Parquet write failed: {e}")
+    # 5) Write to Parquet first (durable log)
+    parquet_written = parquet_writer.append_messages(deduped, mission_id=mission_id, texts=texts)
 
     # 6) Optionally embed + store in Chroma
-    if not req.embed:
+    if not embed:
         return {
             "ok": True,
             "validated": validated_count,
@@ -307,6 +368,7 @@ def ingest(req: IngestRequest):
             "skipped_duplicates_msgid": dup_msgid,
             "parquet_written": parquet_written,
             "vector_stored": 0,
+            "validation_errors": len(errors),
         }
 
     ids: List[str] = []
@@ -314,7 +376,6 @@ def ingest(req: IngestRequest):
     embs: List[List[float]] = []
     metas: List[Dict[str, Any]] = []
 
-    # ✅ Single loop only (fixed accidental nested duplicate loop)
     for msg, text in zip(deduped, texts):
         raw_id = msg.get("event_id") or msg.get("query_id")
         if not raw_id:
@@ -324,7 +385,6 @@ def ingest(req: IngestRequest):
         corr_id = msg.get("corr_id")
         idem = msg.get("idempotency_key")
 
-        # Stable vector IDs when corr_id + idempotency_key exist
         if corr_id and idem:
             doc_id = f"{schema_name}:{corr_id}:{idem}"
         else:
@@ -342,17 +402,14 @@ def ingest(req: IngestRequest):
 
     if ids:
         if hasattr(col, "upsert"):
-            try:
-                col.upsert(ids=ids, documents=docs, embeddings=embs, metadatas=metas)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Chroma upsert failed: {e}")
+            col.upsert(ids=ids, documents=docs, embeddings=embs, metadatas=metas)
         else:
-            try:
-                col.add(ids=ids, documents=docs, embeddings=embs, metadatas=metas)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Chroma add failed: {e}")
+            col.add(ids=ids, documents=docs, embeddings=embs, metadatas=metas)
 
     vector_stored = len(ids)
+
+    # Buffer MCP.Detection messages for real-time polling by missionState → Agent D
+    _buffer_detections(deduped)
 
     return {
         "ok": True,
@@ -363,7 +420,98 @@ def ingest(req: IngestRequest):
         "skipped_duplicates_msgid": dup_msgid,
         "parquet_written": parquet_written,
         "vector_stored": vector_stored,
+        "validation_errors": len(errors),
     }
+
+
+@app.post("/ingest")
+def ingest(req: IngestRequest):
+    """HTTP endpoint — delegates to the shared ingest_messages() pipeline."""
+    try:
+        return ingest_messages(req.messages, embed=req.embed)
+    except (ValidationError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/detections/recent")
+def get_recent_detections(since: Optional[str] = None):
+    """
+    Returns buffered MCP.Detection messages, optionally filtered by timestamp.
+    Used by missionState to poll for new detections and forward to Agent D.
+    """
+    with _detections_lock:
+        all_detections = list(_recent_detections)
+
+    if since:
+        all_detections = [d for d in all_detections if d.get("ts", "") > since]
+
+    return {"ok": True, "detections": all_detections, "count": len(all_detections)}
+
+
+class GeoUpdateRequest(BaseModel):
+    event_id: str
+    geo: Dict[str, Any]  # {"lat": float, "lon": float, "alt_m"?: float}
+
+
+@app.post("/detections/update-geo")
+def update_detection_geo(req: GeoUpdateRequest):
+    """
+    Update the geo coordinates of a stored detection in ChromaDB.
+    Used by missionState to correct GPS with real drone telemetry.
+    """
+    # Find the document in ChromaDB by event_id suffix in the ID
+    results = col.get(where={"type": "MCP.Detection"}, include=["metadatas", "documents", "embeddings"])
+    target_idx = None
+    for i, doc_id in enumerate(results["ids"]):
+        if doc_id.endswith(req.event_id):
+            target_idx = i
+            break
+
+    if target_idx is None:
+        raise HTTPException(status_code=404, detail=f"Detection {req.event_id} not found in ChromaDB")
+
+    doc_id = results["ids"][target_idx]
+    old_meta = results["metadatas"][target_idx]
+    old_doc = results["documents"][target_idx]
+
+    # Update metadata with new geo
+    lat = req.geo.get("lat")
+    lon = req.geo.get("lon")
+    new_meta = dict(old_meta)
+    if lat is not None:
+        new_meta["geo_lat"] = lat
+    if lon is not None:
+        new_meta["geo_lon"] = lon
+
+    # Re-generate embedding text with corrected geo
+    new_text = old_doc
+    if lat is not None and lon is not None:
+        # Append or replace geo in the text for better semantic search
+        geo_suffix = f" | geo=({lat:.6f},{lon:.6f})"
+        if "geo=(" in old_doc:
+            new_text = re.sub(r"\s*\|\s*geo=\([^)]+\)", geo_suffix, old_doc)
+        else:
+            new_text = old_doc.rstrip(".") + geo_suffix
+
+    new_emb = model.encode(new_text, normalize_embeddings=True).tolist()
+
+    col.update(
+        ids=[doc_id],
+        documents=[new_text],
+        embeddings=[new_emb],
+        metadatas=[new_meta],
+    )
+
+    # Also update the in-memory buffer so Agent D poll gets corrected coords
+    with _detections_lock:
+        for det in _recent_detections:
+            if det.get("event_id") == req.event_id:
+                det["geo"] = req.geo
+                break
+
+    return {"ok": True, "event_id": req.event_id, "doc_id": doc_id, "geo": req.geo}
 
 
 # -------------------------

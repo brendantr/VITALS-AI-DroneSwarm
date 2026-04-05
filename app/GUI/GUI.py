@@ -224,6 +224,12 @@ class GUI:
                 self.map_page.add_poi(poi.lat, poi.lon, poi.name)
         self._invoker.invoke(_do)
 
+    def updateServiceStatus(self, agent_b_up: bool, osm_up: bool):
+        """Thread-safe: update service status indicators."""
+        def _do():
+            self.map_page.update_service_status(agent_b_up, osm_up)
+        self._invoker.invoke(_do)
+
     def addDetectedPOI(self, lat, lon, name, description=""):
         """Thread-safe: add a POI from image detection, returns poi_id.
         Blocks the calling thread until the main thread creates the POI."""
