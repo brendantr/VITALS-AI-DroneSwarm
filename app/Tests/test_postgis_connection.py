@@ -1,57 +1,27 @@
 """
-Tests that verify the Docker PostGIS container is running
-and has the correct data imported.
+Tests that verify the PostGIS-backed OSM database is reachable
+and has the expected data imported.
 
-Run:  cd app && pytest Tests/test_postgis_connection.py -v
+Run: cd app && pytest Tests/test_postgis_connection.py -v
 """
 
-import os
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import text
 
 
-POSTGIS_URL = os.getenv(
-    "VITALS_POSTGIS_URL",
-    "postgresql://renderer:renderer@18.220.206.190:5432/gis",
-)
-
-
-def _postgis_is_reachable():
-    try:
-        engine = create_engine(POSTGIS_URL)
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        engine.dispose()
-        return True
-    except Exception:
-        return False
-
-
-# Skip every test in this file if Docker isn't running
-pytestmark = pytest.mark.skipif(
-    not _postgis_is_reachable(),
-    reason="PostGIS Docker container is not running on localhost:5432",
-)
-
-
-@pytest.fixture(scope="module")
-def engine():
-    eng = create_engine(POSTGIS_URL)
-    yield eng
-    eng.dispose()
+pytestmark = pytest.mark.docker
 
 
 class TestPostGISConnection:
 
-    def test_database_reachable(self, engine):
-        with engine.connect() as conn:
+    def test_database_reachable(self, postgis_engine):
+        with postgis_engine.connect() as conn:
             result = conn.execute(text("SELECT 1 AS ok")).fetchone()
         assert result.ok == 1
 
-    def test_osm_tables_exist(self, engine):
+    def test_osm_tables_exist(self, postgis_engine):
         expected = {"planet_osm_polygon", "planet_osm_line", "planet_osm_point", "planet_osm_roads"}
-        with engine.connect() as conn:
+        with postgis_engine.connect() as conn:
             rows = conn.execute(text(
                 "SELECT tablename FROM pg_tables "
                 "WHERE schemaname='public' AND tablename LIKE 'planet_osm%'"
@@ -59,19 +29,19 @@ class TestPostGISConnection:
         actual = {r.tablename for r in rows}
         assert expected.issubset(actual), f"Missing tables: {expected - actual}"
 
-    def test_polygon_table_has_data(self, engine):
-        with engine.connect() as conn:
+    def test_polygon_table_has_data(self, postgis_engine):
+        with postgis_engine.connect() as conn:
             count = conn.execute(text("SELECT count(*) AS n FROM planet_osm_polygon")).fetchone()
-        assert count.n > 0, "planet_osm_polygon is empty — PBF import may have failed"
+        assert count.n > 0, "planet_osm_polygon is empty - PBF import may have failed"
 
-    def test_line_table_has_data(self, engine):
-        with engine.connect() as conn:
+    def test_line_table_has_data(self, postgis_engine):
+        with postgis_engine.connect() as conn:
             count = conn.execute(text("SELECT count(*) AS n FROM planet_osm_line")).fetchone()
-        assert count.n > 0, "planet_osm_line is empty — PBF import may have failed"
+        assert count.n > 0, "planet_osm_line is empty - PBF import may have failed"
 
-    def test_required_columns_exist(self, engine):
+    def test_required_columns_exist(self, postgis_engine):
         required = {"osm_id", "way", "building", "water", "highway"}
-        with engine.connect() as conn:
+        with postgis_engine.connect() as conn:
             rows = conn.execute(text(
                 "SELECT column_name FROM information_schema.columns "
                 "WHERE table_name = 'planet_osm_polygon'"
@@ -81,10 +51,11 @@ class TestPostGISConnection:
         assert not missing, f"Missing columns in planet_osm_polygon: {missing}"
 
 
+@pytest.mark.usdata
 class TestGeographicRegion:
 
-    def test_not_luxembourg(self, engine):
-        with engine.connect() as conn:
+    def test_not_luxembourg(self, postgis_engine):
+        with postgis_engine.connect() as conn:
             row = conn.execute(text("""
                 SELECT
                     ST_YMin(ST_Transform(ST_SetSRID(ST_Extent(way),3857),4326)) as min_lat,
@@ -93,13 +64,12 @@ class TestGeographicRegion:
             """)).fetchone()
         is_luxembourg = (49.0 < float(row.min_lat) < 51.0) and (49.0 < float(row.max_lat) < 51.0)
         assert not is_luxembourg, (
-            f"Data looks like Luxembourg (lat {row.min_lat:.1f}–{row.max_lat:.1f}). "
+            f"Data looks like Luxembourg (lat {row.min_lat:.1f}-{row.max_lat:.1f}). "
             "Re-import with florida-latest.osm.pbf or us-south-latest.osm.pbf."
         )
 
-    def test_florida_area_has_buildings(self, engine):
-        with engine.connect() as conn:
-            # First check if we even have US data
+    def test_florida_area_has_buildings(self, postgis_engine):
+        with postgis_engine.connect() as conn:
             row = conn.execute(text("""
                 SELECT ST_YMin(ST_Transform(ST_SetSRID(ST_Extent(way),3857),4326)) as min_lat
                 FROM planet_osm_polygon
@@ -115,4 +85,4 @@ class TestGeographicRegion:
                     ST_Transform(ST_MakeEnvelope(-81.21, 28.59, -81.19, 28.61, 4326), 3857)
                 )
             """)).fetchone()
-        assert count.n > 0, "No buildings found near UCF — wrong PBF region?"
+        assert count.n > 0, "No buildings found near UCF - wrong PBF region?"

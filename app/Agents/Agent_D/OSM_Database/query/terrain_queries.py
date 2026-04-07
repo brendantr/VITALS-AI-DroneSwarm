@@ -1,5 +1,4 @@
 from __future__ import annotations
-from sqlalchemy import create_engine
 
 from ...CostMaps.terrain_CostMap import (
     Tile,
@@ -9,9 +8,6 @@ from ...CostMaps.terrain_CostMap import (
 )
 from ..postgis.postgis_handler import query_features_in_polygon, query_tile_counts_4326
 from rtree import index
-
-DB_URL = "postgresql://renderer:renderer@localhost:5432/gis"
-engine = create_engine(DB_URL)
 
 def _build_grid_from_tile_counts(tile_rows, search_tags, terrain_id):
     if not tile_rows:

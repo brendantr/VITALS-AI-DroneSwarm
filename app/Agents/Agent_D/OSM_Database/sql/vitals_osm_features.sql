@@ -84,37 +84,71 @@ WITH
     SELECT x_idx, y_idx, tile_3857
     FROM grid
     WHERE ST_Intersects(tile_3857, mission_geom_3857)
+  ),
+  polygon_features AS (
+    SELECT
+      p.osm_id,
+      p.way,
+      (p.building IS NOT NULL) AS has_building,
+      (p.water IS NOT NULL OR p."natural" = 'water') AS has_water
+    FROM public.planet_osm_polygon p
+    CROSS JOIN mission_3857 m
+    WHERE (p.building IS NOT NULL OR p.water IS NOT NULL OR p."natural" = 'water')
+      AND p.way && m.geom_3857
+      AND ST_Intersects(p.way, m.geom_3857)
+  ),
+  polygon_hits AS (
+    SELECT
+      t.x_idx,
+      t.y_idx,
+      COUNT(*) FILTER (WHERE pf.has_building)::int AS building_count,
+      COUNT(*) FILTER (WHERE pf.has_water)::int AS water_count
+    FROM tiles t
+    LEFT JOIN polygon_features pf
+      ON pf.way && t.tile_3857
+     AND ST_Intersects(pf.way, t.tile_3857)
+    GROUP BY t.x_idx, t.y_idx
+  ),
+  line_features AS (
+    SELECT
+      l.osm_id,
+      l.way,
+      vitals.classify_highway(l.highway) AS highway_class
+    FROM public.planet_osm_line l
+    CROSS JOIN mission_3857 m
+    WHERE l.highway IS NOT NULL
+      AND l.way && m.geom_3857
+      AND ST_Intersects(l.way, m.geom_3857)
+  ),
+  line_hits AS (
+    SELECT
+      t.x_idx,
+      t.y_idx,
+      COUNT(*) FILTER (WHERE lf.highway_class = 'highway')::int AS highway_count,
+      COUNT(*) FILTER (WHERE lf.highway_class = 'pedestrian_path')::int AS pedestrian_path_count
+    FROM tiles t
+    LEFT JOIN line_features lf
+      ON lf.way && t.tile_3857
+     AND ST_Intersects(lf.way, t.tile_3857)
+    GROUP BY t.x_idx, t.y_idx
   )
 SELECT
-  x_idx,
-  y_idx,
+  t.x_idx,
+  t.y_idx,
   ST_AsText(ST_Transform(tile_3857, 4326)) AS tile_wkt_4326,
   ST_X(ST_Transform(ST_Centroid(tile_3857), 4326)) AS centroid_lon,
   ST_Y(ST_Transform(ST_Centroid(tile_3857), 4326)) AS centroid_lat,
-
-  (SELECT COUNT(*)::int
-   FROM public.planet_osm_polygon p
-   WHERE p.building IS NOT NULL
-     AND ST_Intersects(p.way, tile_3857)) AS building_count,
-
-  (SELECT COUNT(*)::int
-   FROM public.planet_osm_polygon p
-   WHERE p.water IS NOT NULL
-     AND ST_Intersects(p.way, tile_3857)) AS water_count,
-
-  (SELECT COUNT(*)::int
-   FROM public.planet_osm_line l
-   WHERE l.highway IS NOT NULL
-     AND vitals.classify_highway(l.highway) = 'highway'
-     AND ST_Intersects(l.way, tile_3857)) AS highway_count,
-
-  (SELECT COUNT(*)::int
-   FROM public.planet_osm_line l
-   WHERE l.highway IS NOT NULL
-     AND vitals.classify_highway(l.highway) = 'pedestrian_path'
-     AND ST_Intersects(l.way, tile_3857)) AS pedestrian_path_count
-
-FROM tiles;
+  COALESCE(ph.building_count, 0) AS building_count,
+  COALESCE(ph.water_count, 0) AS water_count,
+  COALESCE(lh.highway_count, 0) AS highway_count,
+  COALESCE(lh.pedestrian_path_count, 0) AS pedestrian_path_count
+FROM tiles t
+LEFT JOIN polygon_hits ph
+  ON ph.x_idx = t.x_idx
+ AND ph.y_idx = t.y_idx
+LEFT JOIN line_hits lh
+  ON lh.x_idx = t.x_idx
+ AND lh.y_idx = t.y_idx;
 $$;
 
 
@@ -145,6 +179,31 @@ LANGUAGE sql STABLE
 AS $$
     WITH mission AS (
         SELECT ST_Transform(ST_GeomFromText(polygon_wkt_4326, 4326), 3857) AS geom_3857
+    ),
+    matching_polygons AS (
+        SELECT
+            p.osm_id,
+            p.building,
+            p.water,
+            p."natural",
+            p.way
+        FROM public.planet_osm_polygon p
+        CROSS JOIN mission m
+        WHERE (p.building IS NOT NULL OR p.water IS NOT NULL OR p."natural" = 'water')
+          AND p.way && m.geom_3857
+          AND ST_Intersects(p.way, m.geom_3857)
+    ),
+    matching_lines AS (
+        SELECT
+            l.osm_id,
+            vitals.classify_highway(l.highway) AS feature_type,
+            l.highway AS tag_value,
+            l.way
+        FROM public.planet_osm_line l
+        CROSS JOIN mission m
+        WHERE l.highway IS NOT NULL
+          AND l.way && m.geom_3857
+          AND ST_Intersects(l.way, m.geom_3857)
     )
     -- Buildings (from polygon table)
     SELECT
@@ -152,9 +211,8 @@ AS $$
         'building'::text AS feature_type,
         p.building AS tag_value,
         ST_AsText(ST_Transform(p.way, 4326)) AS geom_wkt_4326
-    FROM public.planet_osm_polygon p, mission m
+    FROM matching_polygons p
     WHERE p.building IS NOT NULL
-      AND ST_Intersects(p.way, m.geom_3857)
 
     UNION ALL
 
@@ -164,21 +222,18 @@ AS $$
         'water'::text,
         COALESCE(p.water, p."natural") AS tag_value,
         ST_AsText(ST_Transform(p.way, 4326))
-    FROM public.planet_osm_polygon p, mission m
+    FROM matching_polygons p
     WHERE (p.water IS NOT NULL OR p."natural" = 'water')
-      AND ST_Intersects(p.way, m.geom_3857)
 
     UNION ALL
 
     -- Highways (from line table)
     SELECT
         l.osm_id,
-        vitals.classify_highway(l.highway) AS feature_type,
-        l.highway AS tag_value,
+        l.feature_type,
+        l.tag_value,
         ST_AsText(ST_Transform(l.way, 4326))
-    FROM public.planet_osm_line l, mission m
-    WHERE l.highway IS NOT NULL
-      AND ST_Intersects(l.way, m.geom_3857);
+    FROM matching_lines l;
 $$;
 
 
