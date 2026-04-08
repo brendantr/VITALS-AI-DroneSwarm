@@ -1,6 +1,5 @@
 #!/bin/bash
 set -euo pipefail
-
 export PGPASSWORD="renderer"
 
 # ── If the command is "import", just delegate to upstream as-is ──
