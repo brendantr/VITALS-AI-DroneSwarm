@@ -1057,4 +1057,3 @@ if __name__ == "__main__":
     finally:
         missionState._detection_poll_stop.set()
         missionState._stop_agent_b()
-        missionState.toggle_database('stop')
