@@ -18,10 +18,15 @@ def main() -> None:
         action="store_true",
         help="Run the legacy batch exporter that saves PNG files.",
     )
+    parser.add_argument(
+        "--no-items",
+        action="store_true",
+        help="Launch the demo without mock OSM items so fallback pathing is shown.",
+    )
     args = parser.parse_args()
 
     if not args.batch:
-        run_interactive_demo()
+        run_interactive_demo(initial_include_items=not args.no_items)
         return
 
     demo_counts = [1, 10, 100, 1000, 10000]
@@ -37,6 +42,7 @@ def main() -> None:
             save_prefix=save_prefix,
             show_plots=False,
             auto_scale=True,
+            include_items=not args.no_items,
         )
 
 

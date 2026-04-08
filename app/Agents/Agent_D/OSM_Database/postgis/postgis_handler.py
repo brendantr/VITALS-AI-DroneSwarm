@@ -21,9 +21,6 @@ def _get_postgis_url() -> str:
 
 
 def _sql_file_path() -> Path:
-    return Path(__file__).resolve().parent.parent / "sql" / "vitals_tile_grid.sql"
-
-def _sql_file_path() -> Path:
     # Go up from postgis/ to OSM_Database/ then into sql/
     return Path(__file__).resolve().parent.parent / "sql" / "vitals_tile_grid.sql"
 
@@ -94,6 +91,32 @@ def _polygon_points_to_wkt_4326(polygon_points):
     return poly.wkt
 
 
+def _normalize_feature_type(feature_type: str | None) -> str:
+    if feature_type == "pedestrian_path":
+        return "highway"
+    return str(feature_type or "unknown")
+
+
+def _build_feature_records(rows) -> list[dict]:
+    results = []
+    for row in rows:
+        geom = getattr(row, "geom_wkt_4326", None)
+        if not geom:
+            continue
+        normalized_type = _normalize_feature_type(getattr(row, "feature_type", None))
+        tag_value = str(getattr(row, "tag_value", "") or "")
+        osm_id = getattr(row, "osm_id", None)
+        results.append(
+            {
+                "osm_id": int(osm_id) if osm_id is not None else None,
+                "feature_type": normalized_type,
+                "tag_value": tag_value,
+                "geometry": shapely_wkt.loads(geom),
+            }
+        )
+    return results
+
+
 def query_tile_counts_4326(polygon_points, tile_size_m=60):
     global engine
     try:
@@ -146,3 +169,31 @@ def query_tile_counts_4326(polygon_points, tile_size_m=60):
             }
         )
     return results
+
+
+def query_features_in_polygon(polygon_points):
+    global engine
+    try:
+        engine = create_engine(_get_postgis_url()) if engine is None else engine
+    except OperationalError as e:
+        print(f"Error connecting to PostGIS database: {e}")
+        return None
+
+    ensure_vitals_tile_sql_installed()
+
+    polygon_wkt = _polygon_points_to_wkt_4326(polygon_points)
+    sql = text(
+        """
+        SELECT
+            osm_id,
+            feature_type,
+            tag_value,
+            geom_wkt_4326
+        FROM vitals.query_features_in_polygon(:polygon_wkt);
+        """
+    )
+
+    with engine.connect() as conn:
+        rows = conn.execute(sql, {"polygon_wkt": polygon_wkt}).fetchall()
+
+    return _build_feature_records(rows)
