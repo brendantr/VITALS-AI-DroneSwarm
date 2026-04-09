@@ -1046,7 +1046,6 @@ class missionState:
         
 
 if __name__ == "__main__":
-    missionState.toggle_database('start')
     
     gui = GUI()
     missionState = missionState(gui)

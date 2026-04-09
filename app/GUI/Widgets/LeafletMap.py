@@ -360,15 +360,9 @@ class LeafletMap(QWidget):
         assets_dir = os.path.join(os.path.dirname(__file__), "..", "..", "assets")
         drone_b64 = _load_image_base64(os.path.join(assets_dir, "camera-drone.png"))
         gcs_b64 = _load_image_base64(os.path.join(assets_dir, "gcs.png"))
+        
 
-        # Check internet connectivity for tile server selection
-        from Utils.check_internet import has_internet
-        if has_internet():
-            tile_url = EC2_TILE_URL
-            print(f"Internet detected — using tile server at {tile_url}")
-        else:
-            tile_url = "http://localhost:8080/tile/{z}/{x}/{y}.png"
-            print("No internet detected — using offline tile server at localhost:8080")
+        tile_url = "http://0.0.0.0:8080/tile/{z}/{x}/{y}.png"
 
         # Build HTML with embedded resources
         qwc_js = _load_qwebchannel_js()

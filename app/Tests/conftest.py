@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 
-DEFAULT_POSTGIS_URL = "postgresql://renderer:renderer@18.220.206.190:5432/gis"
+DEFAULT_POSTGIS_URL = "postgresql://renderer:renderer@0.0.0.0:5432/gis"
 DEFAULT_CONNECT_TIMEOUT_S = 3
 
 

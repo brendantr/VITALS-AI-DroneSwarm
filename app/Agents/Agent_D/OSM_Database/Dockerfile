@@ -3,7 +3,7 @@ FROM overv/openstreetmap-tile-server
 # ── Copy the PBF file into the image so it's always available ──
 # Place your .osm.pbf file next to this Dockerfile before building,
 # or adjust the path accordingly.
-COPY florida-260407.osm.pbf /data/region.osm.pbf
+COPY florida-260408.osm.pbf /data/region.osm.pbf
 
 # ── Copy custom VITALS SQL to run after import ──
 COPY sql/vitals_osm_features.sql /docker-entrypoint-initdb.d/vitals_osm_features.sql
