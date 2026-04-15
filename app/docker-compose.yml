@@ -2,50 +2,37 @@ networks:
   vitals-network:
     driver: bridge
 services:
-  database:
-    image: postgres:13
-    environment:
-      POSTGRES_USER: vitals_user
-      POSTGRES_PASSWORD: vitals_password
+  osm:
+    image: vitals/osm-tile-server:latest
+    container_name: vitals-osm-server
     ports:
+      - "8080:80"
       - "5432:5432"
     networks:
       - vitals-network
+    environment:
+      THREADS: 24
+      OSM2PGSQL_EXTRA_ARGS: "-C 24000"
+      BACKGROUND_RENDERING: "true"
+      POSTGRES_USER: renderer
+      POSTGRES_PASSWORD: renderer
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-  vitals-gcs:
-    image: gersh01/vitals-gcs:latest
-    ports:
-      - "8000:8000"
-    networks:
-      - vitals-network
-    depends_on:
-      - database
-  agent-a:
-    image: gersh01/agent-a
-    networks:
-      - vitals-network
-    depends_on:
-      - vitals-gcs
+      - osm-data:/data/database
+      - osm-tiles:/data/tiles
+    shm_size: "8gb"
+    command: run
   agent-b:
-    image: gersh01/agent-b
+    image: vitals/agent-b:latest
+    environment:
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+      - HF_DATASETS_OFFLINE=1
+      - VITALS_SCHEMA_ROOT=/app/schemas
+    ports:
+      - "8081:8081"
     networks:
-      - vitals-network
-    depends_on:
-      - agent-a
-  agent-c:
-    image: gersh01/agent-c
-    networks:
-      - vitals-network
-    depends_on:
-      - agent-b
-  agent-d:
-    image: gersh01/agent-d
-    networks:
-      - vitals-network
-    depends_on:
-      - agent-c
-
+      - vitals-network 
 
 volumes:
-  postgres_data:
+  osm-data:
+  osm-tiles:

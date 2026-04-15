@@ -1,0 +1,9 @@
+# For development purposes (x86 architecture) use this build
+
+cd app/
+docker build -t vitals/agent_b:latest -f Agents/agent_B/Dockerfile.x86
+
+# For deployment environment (arm64 architecture) use this build
+
+cd app/
+docker build -t vitals/agent_b:latest -f Agents/agent_B/Dockerfile.jetson

@@ -1,0 +1,26 @@
+# ── Web framework ──
+fastapi
+uvicorn[standard]
+
+# ── ML / Embeddings ──
+sentence-transformers
+transformers
+
+# ── Vector store ──
+chromadb
+
+# ── Parquet storage ──
+pyarrow
+
+# ── Schema validation ──
+jsonschema
+referencing
+
+# ── Data models ──
+pydantic
+
+# ── HuggingFace Hub (model downloads at build time) ──
+huggingface-hub
+
+# ── PyTorch (for CPU) ──
+torch

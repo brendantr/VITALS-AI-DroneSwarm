@@ -1,0 +1,40 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Jetson-specific torch FIRST (before sentence-transformers pulls PyPI torch)
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    "torch @ https://developer.download.nvidia.com/compute/redist/jp/v61/pytorch/torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl"
+
+# Install remaining deps (sentence-transformers will see torch is already installed)
+COPY Agents/agent_B/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Pre-download HuggingFace models into the image
+ENV HF_HOME=/app/.hf_cache
+RUN python3 -c "\
+from sentence_transformers import SentenceTransformer, CrossEncoder; \
+SentenceTransformer('BAAI/bge-small-en-v1.5'); \
+CrossEncoder('BAAI/bge-reranker-base')"
+
+# Copy application code
+COPY Agents/agent_B/      /app/agent_B/
+COPY Agents/agents_common/ /app/agents_common/
+COPY schemas/              /app/schemas/
+
+EXPOSE 8081
+
+# Force offline mode at runtime
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
+ENV HF_DATASETS_OFFLINE=1
+ENV VITALS_SCHEMA_ROOT=/app/schemas
+
+CMD ["uvicorn", "agent_B.agent_b_service:app", "--host", "0.0.0.0", "--port", "8081"]
