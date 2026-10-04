@@ -221,8 +221,10 @@ class POI:
 
 class missionState:
 
-    def __init__(self, gui, sim_only=False):
+    def __init__(self, gui, sim_only=False, mavlink_endpoint=None, mavlink_baud=None):
         self.sim_only = sim_only
+        self.mavlink_endpoint = mavlink_endpoint
+        self.mavlink_baud = mavlink_baud
         self.drones = []
         self.pois = []
         self.gcs_location = None  # Global Control Station location (latitude, longitude)
@@ -625,7 +627,14 @@ class missionState:
         if self.mavLinkConnected:
             print("Already connected to MAVLink")
             return True
-        success = self.dispatcher.connect()
+        if self.mavlink_endpoint is None:
+            success = self.dispatcher.connect()
+        elif self.mavlink_baud is None:
+            success = self.dispatcher.connect(connection_string=self.mavlink_endpoint)
+        else:
+            success = self.dispatcher.connect(
+                connection_string=self.mavlink_endpoint, baud=self.mavlink_baud
+            )
         if success:
             self.dispatcherThread = threading.Thread(target=self.run_asyncio_loop, daemon=True)
             self.dispatcherThread.start()

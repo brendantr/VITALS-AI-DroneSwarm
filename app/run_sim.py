@@ -7,7 +7,7 @@ from missionState import missionState
 
 if __name__ == "__main__":
     gui = GUI()
-    state = missionState(gui, sim_only=True)
+    state = missionState(gui, sim_only=True, mavlink_endpoint="tcp:127.0.0.1:14550")
     gui.link_mission_state(state)
 
     try:
