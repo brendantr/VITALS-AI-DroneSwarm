@@ -217,7 +217,8 @@ class POI:
 
 class missionState:
 
-    def __init__(self, gui):
+    def __init__(self, gui, sim_only=False):
+        self.sim_only = sim_only
         self.drones = []
         self.pois = []
         self.gcs_location = None  # Global Control Station location (latitude, longitude)
@@ -244,21 +245,26 @@ class missionState:
         self.drone_search_destinations = {}
         self.agent_d_last_result = None
 
-        # Start Agent B microservice as a background process
-        self._agent_b_proc = self._start_agent_b()
-
-        # Poll Agent B for new detections and forward to Agent D for costmap updates
+        self._agent_b_proc = None
         self._detection_poll_stop = threading.Event()
-        self._detection_poll_thread = threading.Thread(
-            target=self._poll_agent_b_detections, daemon=True
-        )
-        self._detection_poll_thread.start()
 
-        # Health-check thread for service status indicators
-        self._health_poll_thread = threading.Thread(
-            target=self._poll_service_health, daemon=True
-        )
-        self._health_poll_thread.start()
+        if self.sim_only:
+            print("[SIM] Agent B and OSM health polling disabled.")
+        else:
+            # Start Agent B microservice as a background process
+            self._agent_b_proc = self._start_agent_b()
+
+            # Poll Agent B for new detections and forward to Agent D for costmap updates
+            self._detection_poll_thread = threading.Thread(
+                target=self._poll_agent_b_detections, daemon=True
+            )
+            self._detection_poll_thread.start()
+
+            # Health-check thread for service status indicators
+            self._health_poll_thread = threading.Thread(
+                target=self._poll_service_health, daemon=True
+            )
+            self._health_poll_thread.start()
 
     def _poll_service_health(self):
         """Background thread: pings Agent B and OSM DB, updates GUI status dots."""
