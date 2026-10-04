@@ -45,8 +45,11 @@ class Dispatcher:
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
 
-    def connect(self):
-        if platform.system().lower() == "windows":
+    def connect(self, connection_string=None, baud=None):
+        """Connect to one explicit target, or use legacy automatic discovery."""
+        if connection_string is not None:
+            connection_targets = [connection_string]
+        elif platform.system().lower() == "windows":
             connection_targets = [
                 "COM10",  # Direct serial connection to drone (57600 baud)
                 "tcp:127.0.0.1:14450",  # Mission Planner MAVLink Mirror (TCP)
@@ -67,17 +70,23 @@ class Dispatcher:
         print(f"MAVLink connection targets: {connection_targets}")
 
         for target in connection_targets:
+            master = None
+            connected = False
+            self.master = None
+            self.connected_system_id = None
+            self.connected_component_id = None
             try:
-                # For serial connections, specify 57600 baud rate (RFD900x standard)
+                # Automatic discovery retains the RFD900x default baud rate.
                 if target.startswith("COM") or target.startswith("/dev/"):
-                    self.master = mavutil.mavlink_connection(target, baud=57600, autoreconnect=False, mavlink_version="2.0")
+                    serial_baud = baud if connection_string is not None and baud is not None else 57600
+                    master = mavutil.mavlink_connection(target, baud=serial_baud, autoreconnect=False, mavlink_version="2.0")
                 else:
-                    self.master = mavutil.mavlink_connection(target, autoreconnect=False, mavlink_version="2.0")
+                    master = mavutil.mavlink_connection(target, autoreconnect=False, mavlink_version="2.0")
+                self.master = master
                 
                 heartbeat = self.master.wait_heartbeat(timeout=5)
                 if not heartbeat:
                     print(f"MAVLink heartbeat timeout on {target}")
-                    self.master = None
                     continue
 
                 self.connected_system_id = heartbeat.get_srcSystem()
@@ -98,11 +107,25 @@ class Dispatcher:
                 except Exception as stream_error:
                     print(f"Warning: failed requesting telemetry stream: {stream_error}")
 
-                print(f"Connected to MAVLink via {target}")
+                print(
+                    f"Connected to MAVLink via {target} "
+                    f"(system {self.connected_system_id}, component {self.connected_component_id})"
+                )
+                connected = True
                 return True
             except Exception as e:
                 print(f"Error connecting to MAVLink via {target}: {e}")
-                self.master = None
+            finally:
+                if not connected:
+                    try:
+                        if master is not None:
+                            master.close()
+                    except Exception as close_error:
+                        print(f"Warning: failed closing MAVLink via {target}: {close_error}")
+                    finally:
+                        self.master = None
+                        self.connected_system_id = None
+                        self.connected_component_id = None
 
         return False
 

@@ -1,0 +1,78 @@
+# Separate Compose project for the VITALS SITL simulator.
+#
+# The distinct `name:` plus the distinct filename mean this path CANNOT start the
+# existing `database`, `agent-b`, `agent-c`, or `vitals-gcs` services in
+# app/docker-compose.yml -- that file is untouched by this phase.
+#
+# Intended invocation (NOT run yet -- no build, pull, or start has happened):
+#   docker compose -f app/sitl/docker-compose.sitl.yml up --build
+#
+# The build context is this directory, so only Dockerfile and entrypoint.sh are sent
+# to the daemon -- app/temp.zip and the rest of app/ stay out of the build context.
+
+name: vitals-sitl
+
+services:
+  sitl:
+    container_name: vitals-sitl
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Pinned upstream git tag.
+        ARDUPILOT_TAG: Copter-4.6.3
+        # Pinned as specified; NOT yet verified to exist on PyPI (no network access
+        # was used in this phase). A resolution failure should be reported, not
+        # silently floated to latest.
+        MAVPROXY_VERSION: "1.8.75"
+
+    # Native Apple Silicon build -- no QEMU emulation.
+    platform: linux/arm64
+
+    # PID 1 reaper so SITL/MAVProxy children are reaped and signals propagate.
+    init: true
+
+    # Tier 1 health design depends on this: a crash must stay visibly Exited rather
+    # than being silently restarted into a fresh container.
+    restart: "no"
+
+    stop_grace_period: 15s
+
+    environment:
+      # Home = VITALS mission preset 1 (missionState.py:238, first waypoint; the UCF
+      # area). Format lat,lon,alt_m,heading_deg.
+      # 25 m is a SIMULATION ESTIMATE, not verified local terrain elevation. Mission
+      # waypoints are relative-altitude, so this only shifts reported MSL.
+      SITL_HOME: "28.6013158,-81.2020057,25,0"
+      SITL_MODEL: "quad"
+      SITL_SPEEDUP: "1"
+      SITL_INSTANCE: "0"
+      MAVPROXY_TCP_PORT: "14550"
+
+    ports:
+      # Host loopback only. This proves exactly one thing: a MAVLink client running
+      # NATIVELY ON THE MAC (e.g. python3 missionState.py in a Mac venv) can reach
+      # the simulator at tcp:127.0.0.1:14550.
+      #
+      # It does NOT make a future VITALS *container* work. Inside a container,
+      # 127.0.0.1 is that container's own loopback, and Dispatcher.py:43 hard-codes
+      # 127.0.0.1 -- so a containerised VITALS would dial its own empty loopback and
+      # wait_heartbeat() would hang forever. Future options, none in this phase:
+      #   1. Shared network namespace (no app-code change): give the VITALS service
+      #      `network_mode: "service:sitl"` so both share one loopback. That service
+      #      then declares no ports of its own; all publishing moves here.
+      #   2. Make the endpoint configurable (needs separate approval -- edits
+      #      Dispatcher.py): read from env, default tcp:127.0.0.1:14550, set
+      #      tcp:sitl:14550 in Compose.
+      #   3. Host networking -- NOT viable: Docker Desktop on macOS gives containers
+      #      no real host-network loopback.
+      - "127.0.0.1:14550:14550"
+
+    # Deliberately NOT declared anywhere in this file:
+    #   - raw SITL master port 5760 (container-internal only)
+    #   - any additional UDP port
+    #   - any healthcheck:  Tier 1 only this phase. Liveness is enforced by the
+    #     entrypoint supervisor (first child to exit tears the container down with a
+    #     non-zero status), NOT by a port probe -- a port probe would pass while
+    #     MAVProxy served an already-dead SITL. Detecting a wedged-but-alive SITL
+    #     needs a MAVLink data-plane probe and was deferred with its extra port.

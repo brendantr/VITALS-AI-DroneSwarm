@@ -17,10 +17,14 @@ from GUI.GUI import GUI
 from Dispatcher import Dispatcher
 import asyncio
 import threading
-from Agents.Agent_D.agent_entry import get_service as get_agent_d_service
-from Agents.Agent_D.service import AgentDError
-from Agents.Agent_D.Visualizer.visualization import plot_search_area, plot_advanced, plot_postGIS_data, plot_drone_paths
-from Agents.Agent_D.Visualizer.visualization import Interactive_Visualization
+if os.environ.get("VITALS_SIM_ONLY") == "1":
+    get_agent_d_service = None
+    AgentDError = Exception
+    Interactive_Visualization = None
+else:
+    from Agents.Agent_D.agent_entry import get_service as get_agent_d_service
+    from Agents.Agent_D.service import AgentDError
+    from Agents.Agent_D.Visualizer.visualization import Interactive_Visualization
 from LangGraph import langChainMain
 import concurrent.futures
 import subprocess
@@ -217,7 +221,10 @@ class POI:
 
 class missionState:
 
-    def __init__(self, gui):
+    def __init__(self, gui, sim_only=False, mavlink_endpoint=None, mavlink_baud=None):
+        self.sim_only = sim_only
+        self.mavlink_endpoint = mavlink_endpoint
+        self.mavlink_baud = mavlink_baud
         self.drones = []
         self.pois = []
         self.gcs_location = None  # Global Control Station location (latitude, longitude)
@@ -228,7 +235,7 @@ class missionState:
         self.loop = asyncio.new_event_loop()
         self.dispatcher = Dispatcher.Dispatcher(self)
         self.jobIDCounter = 100
-        self.agent_d = get_agent_d_service()
+        self.agent_d = None if self.sim_only else get_agent_d_service()
         self.missionID = "mission-local"
         # TEST VALUES
         self.mission_waypoints = [(28.6013158, -81.2020057, 10, 0 ), (28.6031200, -81.1993369, 10, 0) , (28.6004825, -81.1942729, 10, 0)]
@@ -244,21 +251,26 @@ class missionState:
         self.drone_search_destinations = {}
         self.agent_d_last_result = None
 
-        # Start Agent B microservice as a background process
-        self._agent_b_proc = self._start_agent_b()
-
-        # Poll Agent B for new detections and forward to Agent D for costmap updates
+        self._agent_b_proc = None
         self._detection_poll_stop = threading.Event()
-        self._detection_poll_thread = threading.Thread(
-            target=self._poll_agent_b_detections, daemon=True
-        )
-        self._detection_poll_thread.start()
 
-        # Health-check thread for service status indicators
-        self._health_poll_thread = threading.Thread(
-            target=self._poll_service_health, daemon=True
-        )
-        self._health_poll_thread.start()
+        if self.sim_only:
+            print("[SIM] Agent B and OSM health polling disabled.")
+        else:
+            # Start Agent B microservice as a background process
+            self._agent_b_proc = self._start_agent_b()
+
+            # Poll Agent B for new detections and forward to Agent D for costmap updates
+            self._detection_poll_thread = threading.Thread(
+                target=self._poll_agent_b_detections, daemon=True
+            )
+            self._detection_poll_thread.start()
+
+            # Health-check thread for service status indicators
+            self._health_poll_thread = threading.Thread(
+                target=self._poll_service_health, daemon=True
+            )
+            self._health_poll_thread.start()
 
     def _poll_service_health(self):
         """Background thread: pings Agent B and OSM DB, updates GUI status dots."""
@@ -615,7 +627,14 @@ class missionState:
         if self.mavLinkConnected:
             print("Already connected to MAVLink")
             return True
-        success = self.dispatcher.connect()
+        if self.mavlink_endpoint is None:
+            success = self.dispatcher.connect()
+        elif self.mavlink_baud is None:
+            success = self.dispatcher.connect(connection_string=self.mavlink_endpoint)
+        else:
+            success = self.dispatcher.connect(
+                connection_string=self.mavlink_endpoint, baud=self.mavlink_baud
+            )
         if success:
             self.dispatcherThread = threading.Thread(target=self.run_asyncio_loop, daemon=True)
             self.dispatcherThread.start()
