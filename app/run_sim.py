@@ -1,3 +1,7 @@
+import os
+
+os.environ["VITALS_SIM_ONLY"] = "1"
+
 from GUI.GUI import GUI
 from missionState import missionState
 

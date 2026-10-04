@@ -17,10 +17,14 @@ from GUI.GUI import GUI
 from Dispatcher import Dispatcher
 import asyncio
 import threading
-from Agents.Agent_D.agent_entry import get_service as get_agent_d_service
-from Agents.Agent_D.service import AgentDError
-from Agents.Agent_D.Visualizer.visualization import plot_search_area, plot_advanced, plot_postGIS_data, plot_drone_paths
-from Agents.Agent_D.Visualizer.visualization import Interactive_Visualization
+if os.environ.get("VITALS_SIM_ONLY") == "1":
+    get_agent_d_service = None
+    AgentDError = Exception
+    Interactive_Visualization = None
+else:
+    from Agents.Agent_D.agent_entry import get_service as get_agent_d_service
+    from Agents.Agent_D.service import AgentDError
+    from Agents.Agent_D.Visualizer.visualization import Interactive_Visualization
 from LangGraph import langChainMain
 import concurrent.futures
 import subprocess
@@ -229,7 +233,7 @@ class missionState:
         self.loop = asyncio.new_event_loop()
         self.dispatcher = Dispatcher.Dispatcher(self)
         self.jobIDCounter = 100
-        self.agent_d = get_agent_d_service()
+        self.agent_d = None if self.sim_only else get_agent_d_service()
         self.missionID = "mission-local"
         # TEST VALUES
         self.mission_waypoints = [(28.6013158, -81.2020057, 10, 0 ), (28.6031200, -81.1993369, 10, 0) , (28.6004825, -81.1942729, 10, 0)]
